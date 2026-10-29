@@ -7,8 +7,8 @@ public record AndroidDevice(string Serial, string State, string Model)
 
 public enum CopyDirection { AndroidToComputer, ComputerToAndroid }
 public record CopyOptions(CopyDirection Direction, string Serial, string Source, string Destination,
-    IReadOnlyList<string> Exclusions, IReadOnlyList<string> Exceptions);
-public record SourceFile(string RelativePath, long Size);
+    IReadOnlyList<string> Exclusions, IReadOnlyList<string> Exceptions, bool EnableResume = false, bool UseArft = false);
+public record SourceFile(string RelativePath, long Size, long? ModifiedTicks = null);
 public record CopyProgress(int Completed, int Total, long Bytes, long TotalBytes, string Current);
 public record CopyResult(int Copied, int Skipped, int Failed, string Journal);
 public enum DecisionKind { Rename, Skip, Cancel }

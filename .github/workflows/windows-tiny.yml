@@ -1,0 +1,24 @@
+name: Build Windows Tiny sans ADB
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-dotnet@v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+      - name: Tests et publication sans ADB ni Python
+        shell: pwsh
+        run: ./scripts/publish-windows.ps1 -WithoutAdb
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: AndroCp-win-tiny-x64
+          path: artifacts/AndroCp-win-tiny-x64/
+          if-no-files-found: error

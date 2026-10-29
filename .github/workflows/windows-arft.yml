@@ -1,0 +1,27 @@
+name: Build Windows ARFT et reprise
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-dotnet@v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: '3.14'
+      - name: Tests et publication avec ADB, Python portable et ARFT
+        shell: pwsh
+        run: ./scripts/publish-windows.ps1 -WithArft
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: AndroCp-win-arft-x64
+          path: artifacts/AndroCp-win-arft-x64/
+          if-no-files-found: error

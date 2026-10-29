@@ -70,7 +70,7 @@ public sealed class AdbClient
         // Prune excluded directories, but traverse ancestors of explicitly included exceptions.
         // The final filter is also applied locally before any copy.
         var prune = rules.FindPruneExpression();
-        var command = $"cd {Quote(root)} && find . " + (prune.Length > 0 ? $"\\( {prune} \\) -prune -o " : "") + "-type f -printf '%s\\0%p\\0'";
+        var command = $"cd {Quote(root)} && find . " + (prune.Length > 0 ? $"\\( {prune} \\) -prune -o " : "") + "-type f -printf '%s\\0%T@\\0%p\\0'";
         // Read binary to preserve NUL separators and embedded newlines in file names.
         using var process = Start(ShellArguments(serial, command));
         using var registration = ct.Register(() => Kill(process));
@@ -82,12 +82,13 @@ public sealed class AdbClient
         if (process.ExitCode != 0 || error.Length > 0)
             throw new IOException("Inventaire Android incomplet : " + error.Trim());
         var fields = new UTF8Encoding(false, true).GetString(bytes.ToArray()).Split('\0');
-        if (fields.Length % 2 != 1 || fields[^1] != "") throw new IOException("Inventaire Android malformé.");
+        if (fields.Length % 3 != 1 || fields[^1] != "") throw new IOException("Inventaire Android malformé.");
         var files = new List<SourceFile>();
-        for (var i = 0; i + 1 < fields.Length; i += 2)
+        for (var i = 0; i + 2 < fields.Length; i += 3)
         {
-            var relative = fields[i + 1].StartsWith("./", StringComparison.Ordinal) ? fields[i + 1][2..] : fields[i + 1];
-            if (rules.Includes(relative)) files.Add(new(relative, long.Parse(fields[i], CultureInfo.InvariantCulture)));
+            var relative = fields[i + 2].StartsWith("./", StringComparison.Ordinal) ? fields[i + 2][2..] : fields[i + 2];
+            var ticks = (long)(decimal.Parse(fields[i + 1], CultureInfo.InvariantCulture) * TimeSpan.TicksPerSecond);
+            if (rules.Includes(relative)) files.Add(new(relative, long.Parse(fields[i], CultureInfo.InvariantCulture), ticks));
         }
         return files;
     }

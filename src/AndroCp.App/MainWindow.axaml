@@ -21,6 +21,9 @@
         </Border>
         <StackPanel x:Name="Configuration" Spacing="16">
           <TextBlock Text="01  Connexion" Classes="section" />
+          <TextBlock x:Name="VariantStatus" Foreground="#7DD3FC" TextWrapping="Wrap" />
+          <CheckBox x:Name="ResumeOption" IsVisible="False" IsChecked="True"
+                    Content="Reprise persistante : ARFT Android → PC / file d’attente PC → Android" />
           <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
             <ComboBox x:Name="Devices" HorizontalAlignment="Stretch" PlaceholderText="Choisir un téléphone Android" />
             <Button Grid.Column="1" x:Name="RefreshButton" Content="Actualiser" Click="RefreshClick" />

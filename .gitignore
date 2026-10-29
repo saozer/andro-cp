@@ -4,3 +4,5 @@ artifacts/
 .vs/
 *.user
 platform-tools/
+__pycache__/
+*.pyc

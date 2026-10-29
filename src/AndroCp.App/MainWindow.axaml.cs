@@ -15,6 +15,10 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        ResumeOption.IsVisible = ArftClient.IsBundled;
+        VariantStatus.Text = ArftClient.IsBundled ? "ARFT — reprise disponible. Relancez avec les mêmes chemins pour reprendre."
+            : adb.Executable == "adb" ? "Tiny — ADB du système, sans reprise automatique."
+            : "ADB intégré — sans reprise automatique.";
         initialized = true;
         Opened += async (_, _) => await RefreshAsync();
         Closing += (_, args) =>
@@ -89,7 +93,9 @@ public partial class MainWindow : Window
             return;
         }
         var options = new CopyOptions(Download ? CopyDirection.AndroidToComputer : CopyDirection.ComputerToAndroid,
-            device.Serial, SourcePath.Text, DestinationPath.Text, Lines(Exclusions.Text), Lines(Exceptions.Text));
+            device.Serial, SourcePath.Text, DestinationPath.Text, Lines(Exclusions.Text), Lines(Exceptions.Text),
+            EnableResume: ArftClient.IsBundled && ResumeOption.IsChecked == true,
+            UseArft: Download && ArftClient.IsBundled && ResumeOption.IsChecked == true);
         Configuration.IsEnabled = false;
         CopyButton.IsEnabled = false;
         CancelButton.IsEnabled = true;

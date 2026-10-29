@@ -1,4 +1,4 @@
-name: Build Windows portable
+name: Build Windows ADB
 on:
   workflow_dispatch:
   push:
@@ -17,6 +17,6 @@ jobs:
         run: ./scripts/publish-windows.ps1
       - uses: actions/upload-artifact@v7.0.2
         with:
-          name: AndroCp-win-x64
-          path: artifacts/AndroCp-win-x64/
+          name: AndroCp-win-adb-x64
+          path: artifacts/AndroCp-win-adb-x64/
           if-no-files-found: error
