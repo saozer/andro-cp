@@ -20,7 +20,13 @@ def main():
                     '--export-background-opacity=0', '--export-filename=' + str(png)], check=True)
     sizes = [(n, n) for n in (16, 20, 24, 32, 40, 48, 64, 128, 256)]
     with Image.open(png) as source:
+        if source.convert('RGBA').getchannel('A').getbbox() is None:
+            raise RuntimeError('Le PNG généré est entièrement transparent : vérifier le SVG.')
         source.convert('RGBA').save(icon, format='ICO', sizes=sizes)
+    with Image.open(icon) as generated:
+        for size in sizes:
+            if generated.ico.getimage(size).convert('RGBA').getchannel('A').getbbox() is None:
+                raise RuntimeError(f'Icône entièrement transparente : {size}.')
     print('Icônes générées :', png, icon, sep='\n')
 
 
