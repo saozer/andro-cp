@@ -24,10 +24,10 @@ public sealed class AdbClient
             throw new ArgumentException("Utilise /sdcard ou un chemin sous /storage.");
         return value;
     }
-    private Process Start(IEnumerable<string> args, bool redirectOutput = true)
+    private Process Start(IEnumerable<string> args, bool redirectOutput = true, bool redirectInput = false)
     {
         var info = new ProcessStartInfo(Executable) { UseShellExecute = false, RedirectStandardOutput = redirectOutput,
-            RedirectStandardError = true, CreateNoWindow = true, StandardErrorEncoding = Encoding.UTF8 };
+            RedirectStandardError = true, RedirectStandardInput = redirectInput, CreateNoWindow = true, StandardErrorEncoding = Encoding.UTF8 };
         foreach (var arg in args) info.ArgumentList.Add(arg);
         return Process.Start(info) ?? throw new IOException("Impossible de démarrer ADB.");
     }
@@ -35,21 +35,31 @@ public sealed class AdbClient
     {
         try { if (!process.HasExited) process.Kill(true); } catch (InvalidOperationException) { }
     }
+    private static async Task StopAsync(Process process)
+    {
+        Kill(process);
+        // A confirmed pause must not leave an ADB process transferring in the background.
+        await process.WaitForExitAsync(CancellationToken.None);
+    }
     public async Task<string> RunAsync(IEnumerable<string> args, CancellationToken ct)
     {
         using var process = Start(args);
         using var registration = ct.Register(() => Kill(process));
         var error = process.StandardError.ReadToEndAsync(ct);
         var output = process.StandardOutput.ReadToEndAsync(ct);
-        await process.WaitForExitAsync(ct);
-        var text = await output;
-        var err = await error;
-        if (process.ExitCode != 0) throw new IOException($"ADB ({process.ExitCode}) : {err.Trim()} {text.Trim()}");
-        return text;
+        try
+        {
+            await process.WaitForExitAsync(ct);
+            var text = await output;
+            var err = await error;
+            if (process.ExitCode != 0) throw new IOException($"ADB ({process.ExitCode}) : {err.Trim()} {text.Trim()}");
+            return text;
+        }
+        finally { await StopAsync(process); }
     }
     public Task<string> ShellAsync(string serial, string command, CancellationToken ct) =>
         RunAsync(ShellArguments(serial, command), ct);
-    // No command in this client consumes stdin. -n prevents accidental input waits;
+    // Ordinary shell commands do not consume stdin. -n prevents accidental input waits;
     // -T disables the PTY, keeping bytes intact. Unlike exec-out, shell v2 also
     // propagates the remote exit code and keeps stderr separate from file data.
     public static string[] ShellArguments(string serial, string command) =>
@@ -100,8 +110,12 @@ public sealed class AdbClient
         using var registration = ct.Register(() => Kill(process));
         var errorTask = process.StandardError.ReadToEndAsync(ct);
         using var bytes = new MemoryStream();
-        await process.StandardOutput.BaseStream.CopyToAsync(bytes, ct);
-        await process.WaitForExitAsync(ct);
+        try
+        {
+            await process.StandardOutput.BaseStream.CopyToAsync(bytes, ct);
+            await process.WaitForExitAsync(ct);
+        }
+        finally { await StopAsync(process); }
         var error = await errorTask;
         if (process.ExitCode != 0 || error.Length > 0)
             throw new IOException("Inventaire Android incomplet : " + error.Trim());
@@ -121,9 +135,13 @@ public sealed class AdbClient
         using var process = Start(ShellArguments(serial, "cat " + Quote(remote)));
         using var registration = ct.Register(() => Kill(process));
         var errorTask = process.StandardError.ReadToEndAsync(ct);
-        await using (var target = new FileStream(local, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1024 * 1024, true))
-            await process.StandardOutput.BaseStream.CopyToAsync(target, ct);
-        await process.WaitForExitAsync(ct);
+        try
+        {
+            await using (var target = new FileStream(local, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1024 * 1024, true))
+                await process.StandardOutput.BaseStream.CopyToAsync(target, ct);
+            await process.WaitForExitAsync(ct);
+        }
+        finally { await StopAsync(process); }
         var error = await errorTask;
         if (process.ExitCode != 0 || error.Length > 0) throw new IOException("Lecture Android : " + error.Trim());
     }
@@ -131,18 +149,66 @@ public sealed class AdbClient
         (await ShellAsync(serial, $"if [ -e {Quote(path)} ] || [ -L {Quote(path)} ]; then echo yes; fi", ct)).Trim() == "yes";
 
     public async Task<IReadOnlyList<(string Name, bool IsDirectory)>> ListDirectoryAsync(
-        string serial, string path, CancellationToken ct)
+        string serial, string path, CancellationToken ct, bool allowRootLink = false)
     {
         var quoted = Quote(AndroidPath(path));
-        var noLink = path == "/sdcard" ? "" : $"if [ -L {quoted} ]; then echo 'Dossier lié interdit' >&2; exit 1; fi; ";
+        var noLink = path == "/sdcard" || allowRootLink ? "" : $"if [ -L {quoted} ]; then echo 'Dossier lié interdit' >&2; exit 1; fi; ";
         var command = noLink + $"if [ ! -e {quoted} ]; then exit 0; fi; " +
             $"if [ ! -d {quoted} ]; then echo 'Un parent de destination n’est pas un dossier' >&2; exit 1; fi; " +
-            $"find {quoted} -mindepth 1 -maxdepth 1 \\( -type d -printf 'd\\0%f\\0' -o -printf 'f\\0%f\\0' \\)";
+            $"find {Quote(AndroidPath(path) + "/.")} -mindepth 1 -maxdepth 1 \\( -type d -printf 'd\\0%f\\0' -o -printf 'f\\0%f\\0' \\)";
         var fields = (await ShellAsync(serial, command, ct)).Split('\0');
         if (fields.Length % 2 != 1 || fields[^1] != "") throw new IOException("Liste de dossier Android malformée.");
         var entries = new List<(string Name, bool IsDirectory)>();
         for (var i = 0; i + 1 < fields.Length; i += 2)
             entries.Add((fields[i + 1], fields[i] == "d"));
         return entries;
+    }
+
+    public async Task<string> CanonicalPathAsync(string serial, string path, bool requireDirectory, CancellationToken ct)
+    {
+        path = AndroidPath(path);
+        var command = (requireDirectory ? $"test -d {Quote(path)} || exit 1; " : "") +
+            $"p={Quote(path)}; suffix=''; while [ ! -e \"$p\" ] && [ ! -L \"$p\" ]; do " +
+            "suffix=\"/${p##*/}$suffix\"; p=\"${p%/*}\"; [ -n \"$p\" ] || p=/; done; " +
+            "test -d \"$p\" || exit 1; base=$(readlink -f \"$p\") || exit 1; printf '%s%s' \"$base\" \"$suffix\"";
+        var canonical = (await ShellAsync(serial, command, ct)).TrimEnd('\r', '\n').TrimEnd('/');
+        if (!canonical.StartsWith('/') || canonical.Contains('\0')) throw new IOException("Impossible de résoudre le chemin Android : " + path);
+        return canonical;
+    }
+    public async Task<long> AvailableBytesAsync(string serial, string root, CancellationToken ct)
+    {
+        var output = await ShellAsync(serial, $"p={Quote(root)}; while [ ! -e \"$p\" ]; do p=\"${{p%/*}}\"; [ -n \"$p\" ] || p=/; done; df -k \"$p\"", ct);
+        var fields = output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Last().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        if (fields.Length < 6 || !long.TryParse(fields[3], NumberStyles.Integer, CultureInfo.InvariantCulture, out var free))
+            throw new IOException("Impossible de mesurer l’espace disponible sur Android.");
+        return checked(free * 1024);
+    }
+    public async Task RelayAsync(string sourceSerial, string sourcePath, string destinationSerial, string staging, CancellationToken ct)
+    {
+        // shell -T (WITHOUT -n) is required on the receiving side to forward stdin and EOF.
+        // stdout/stderr remain separate through shell v2; no full staging copy on the PC.
+        using var receiver = Start(["-s", destinationSerial, "shell", "-T", "cat > " + Quote(staging)], redirectInput: true);
+        Process? sender = null;
+        using var cancelled = ct.Register(() => { if (sender is not null) Kill(sender); Kill(receiver); });
+        try
+        {
+            sender = Start(ShellArguments(sourceSerial, "cat " + Quote(sourcePath)));
+            var sourceError = sender.StandardError.ReadToEndAsync(ct);
+            var targetError = receiver.StandardError.ReadToEndAsync(ct);
+            var targetOutput = receiver.StandardOutput.ReadToEndAsync(ct);
+            await sender.StandardOutput.BaseStream.CopyToAsync(receiver.StandardInput.BaseStream, 1024 * 1024, ct);
+            await receiver.StandardInput.BaseStream.FlushAsync(ct);
+            receiver.StandardInput.Close();
+            await Task.WhenAll(sender.WaitForExitAsync(ct), receiver.WaitForExitAsync(ct));
+            var error = (await sourceError) + (await targetError);
+            await targetOutput;
+            if (sender.ExitCode != 0 || receiver.ExitCode != 0 || error.Length > 0)
+                throw new IOException("Relais Android → Android interrompu : " + error.Trim());
+        }
+        finally
+        {
+            if (sender is not null) { await StopAsync(sender); sender.Dispose(); }
+            await StopAsync(receiver);
+        }
     }
 }

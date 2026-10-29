@@ -33,34 +33,37 @@
             Text="Un téléphone connecté et autorisé ne garantit pas l’accès à tous ses dossiers : les données privées et certains répertoires Android sont protégés. Gardez le téléphone branché et évitez de modifier ses fichiers pendant la copie. En cas de problème de connexion, vérifiez le débogage USB, l’autorisation de l’ordinateur et les pilotes USB Windows." />
         </Expander>
         <StackPanel x:Name="Configuration" Spacing="16">
-          <TextBlock Text="01  Connexion" Classes="section" />
-          <TextBlock x:Name="VariantStatus" Foreground="#7DD3FC" TextWrapping="Wrap" />
-          <CheckBox x:Name="ResumeOption" IsVisible="False" IsChecked="True"
-                    Content="Reprise persistante : ARFT Android → PC / file d’attente PC → Android" />
-          <CheckBox x:Name="PartialSpaceOption" IsVisible="False" IsChecked="False"
-                    IsEnabled="{Binding #ResumeOption.IsChecked}"
-                    Content="Poursuivre avec l’espace disponible (Android → PC)"
-                    ToolTip.Tip="Copier fichier par fichier puis s’arrêter proprement si le suivant ne tient pas. Les fichiers terminés sont conservés. Marge de sécurité : 8 Mio." />
           <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-            <ComboBox x:Name="Devices" HorizontalAlignment="Stretch" PlaceholderText="Choisir un téléphone Android" SelectionChanged="DevicesChanged" />
+            <TextBlock Text="01  Source et destination" Classes="section" VerticalAlignment="Center" />
             <Button Grid.Column="1" x:Name="RefreshButton" Content="Actualiser" Click="RefreshClick" />
           </Grid>
-          <TextBlock x:Name="DeviceStatus" Text="Recherche des appareils…" Foreground="#A8B3C7" TextWrapping="Wrap" />
-          <TextBlock Text="02  Trajet de la copie" Classes="section" />
-          <ComboBox x:Name="Direction" SelectedIndex="0" HorizontalAlignment="Stretch" SelectionChanged="DirectionChanged">
-            <ComboBoxItem Content="Android → Cet ordinateur" />
-            <ComboBoxItem Content="Cet ordinateur → Android" />
-          </ComboBox>
-          <Grid ColumnDefinitions="140,*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="12">
-            <TextBlock Grid.Row="0" x:Name="SourceLabel" Text="Source Android" VerticalAlignment="Center" />
-            <TextBox Grid.Column="1" x:Name="SourcePath" Text="/sdcard" Watermark="Chemin du dossier source" />
-            <Button Grid.Column="2" x:Name="SourceBrowse" Content="Parcourir…" Click="BrowseSourceClick" IsVisible="False" />
-            <TextBlock Grid.Row="1" x:Name="DestinationLabel" Text="Destination locale" VerticalAlignment="Center" />
-            <TextBox Grid.Row="1" Grid.Column="1" x:Name="DestinationPath" Watermark="Choisir un dossier existant" />
-            <Button Grid.Row="1" Grid.Column="2" x:Name="DestinationBrowse" Content="Parcourir…" Click="BrowseDestinationClick" />
+          <TextBlock x:Name="VariantStatus" Foreground="#A8B3C7" FontSize="12" TextWrapping="Wrap" />
+          <Grid ColumnDefinitions="*,*" ColumnSpacing="16">
+            <Border Background="#192231" CornerRadius="8" Padding="14">
+              <StackPanel Spacing="10">
+                <TextBlock Text="SOURCE" Foreground="#7DD3FC" FontWeight="SemiBold" />
+                <ComboBox x:Name="SourceDevice" HorizontalAlignment="Stretch" PlaceholderText="Ce PC ou Android" SelectionChanged="DevicesChanged" />
+                <TextBox x:Name="SourcePath" Watermark="Dossier source" />
+                <Button Content="Parcourir…" Click="BrowseSourceClick" />
+                <TextBlock x:Name="SourceDeviceStatus" Text="Choisir la source" TextWrapping="Wrap" FontSize="12" Foreground="#A8B3C7" />
+              </StackPanel>
+            </Border>
+            <Border Grid.Column="1" Background="#192231" CornerRadius="8" Padding="14">
+              <StackPanel Spacing="10">
+                <TextBlock Text="DESTINATION" Foreground="#7DD3FC" FontWeight="SemiBold" />
+                <ComboBox x:Name="DestinationDevice" HorizontalAlignment="Stretch" PlaceholderText="Ce PC ou Android" SelectionChanged="DevicesChanged" />
+                <TextBox x:Name="DestinationPath" Watermark="Dossier destination" />
+                <Button Content="Parcourir…" Click="BrowseDestinationClick" />
+                <TextBlock x:Name="DestinationDeviceStatus" Text="Choisir la destination" TextWrapping="Wrap" FontSize="12" Foreground="#A8B3C7" />
+              </StackPanel>
+            </Border>
           </Grid>
-          <TextBlock Text="Les chemins Android sont saisis manuellement : /sdcard, /sdcard/DCIM, /storage/…" FontSize="12" Foreground="#A8B3C7" />
-          <TextBlock Text="03  Filtres" Classes="section" />
+          <TextBlock x:Name="DeviceStatus" Text="Recherche des appareils…" Foreground="#A8B3C7" TextWrapping="Wrap" />
+          <CheckBox x:Name="ResumeOption" IsChecked="True" Content="Reprise persistante (conserver les fichiers déjà validés)" />
+          <CheckBox x:Name="PartialSpaceOption" IsChecked="False" IsEnabled="{Binding #ResumeOption.IsChecked}"
+                    Content="Poursuivre avec l’espace disponible"
+                    ToolTip.Tip="Contrôle de l’espace sur la destination, fichier par fichier. Marge : 8 Mio. Pause propre si le prochain fichier ne tient pas." />
+          <TextBlock Text="02  Filtres" Classes="section" />
           <Grid ColumnDefinitions="*,*" ColumnSpacing="16">
             <StackPanel Spacing="6">
               <TextBlock Text="Dossiers à exclure" />
@@ -77,7 +80,7 @@
           <StackPanel Spacing="10">
             <TextBlock x:Name="Status" Text="Prêt à préparer une copie" FontWeight="SemiBold" TextWrapping="Wrap" />
             <Grid Height="26" ToolTip.Tip="Progression en volume, fichiers déjà validés lors d’une reprise inclus.">
-              <ProgressBar x:Name="TransferProgress" Minimum="0" Maximum="100" Value="0" Height="26" />
+              <ProgressBar x:Name="TransferProgress" Minimum="0" Maximum="100" Value="0" Height="26" Foreground="#0EA5E9" />
               <Border HorizontalAlignment="Center" VerticalAlignment="Center" Background="#B010151F" CornerRadius="4" Padding="7,1" IsHitTestVisible="False">
                 <TextBlock x:Name="TransferPercentageText" Text="0,0 %" FontSize="12" FontWeight="SemiBold" Foreground="White" />
               </Border>
@@ -90,10 +93,11 @@
         </Border>
       </StackPanel>
     </ScrollViewer>
-    <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
-      <TextBlock Text="Copie uniquement · contrôle des tailles · journal JSONL" Foreground="#A8B3C7" FontSize="12" VerticalAlignment="Center" />
-      <Button Grid.Column="1" x:Name="CancelButton" Content="Annuler" IsEnabled="False" Click="CancelClick" />
-      <Button Grid.Column="2" x:Name="CopyButton" Content="Préparer et copier" IsEnabled="False" Background="#0369A1" Foreground="White" Padding="22,12" Click="CopyClick" />
+    <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="12">
+      <TextBlock Text="Copie uniquement · taille + SHA-256 · journal" Foreground="#A8B3C7" FontSize="12" VerticalAlignment="Center" />
+      <Button Grid.Column="1" x:Name="PauseButton" Content="Pause" IsEnabled="False" Click="PauseClick" />
+      <Button Grid.Column="2" x:Name="CancelButton" Content="Annuler" IsEnabled="False" Click="CancelClick" />
+      <Button Grid.Column="3" x:Name="CopyButton" Content="Préparer et copier" IsEnabled="False" Background="#0369A1" Foreground="White" Padding="22,12" Click="CopyClick" />
     </Grid>
   </Grid>
 </Window>

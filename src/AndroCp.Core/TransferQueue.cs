@@ -19,10 +19,16 @@ public sealed class TransferQueue : IDisposable
     {
         directory ??= Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AndroCp", "queues");
         Directory.CreateDirectory(directory);
-        var identity = JsonSerializer.Serialize(new { options.Direction, options.Serial,
-            Source = options.Direction == CopyDirection.ComputerToAndroid ? Path.TrimEndingDirectorySeparator(Path.GetFullPath(options.Source)) : AdbClient.AndroidPath(options.Source),
-            Destination = options.Direction == CopyDirection.AndroidToComputer ? Path.TrimEndingDirectorySeparator(Path.GetFullPath(options.Destination)) : AdbClient.AndroidPath(options.Destination),
-            Exclusions = options.Exclusions.Order(StringComparer.Ordinal), Exceptions = options.Exceptions.Order(StringComparer.Ordinal) });
+        var source = options.SourceEndpoint;
+        var destination = options.DestinationEndpoint;
+        // Preserve the identity of historical PC↔Android queues. New modes include both devices.
+        var legacy = new { options.Direction, options.Serial,
+            Source = source.IsAndroid ? AdbClient.AndroidPath(source.Path) : Path.TrimEndingDirectorySeparator(Path.GetFullPath(source.Path)),
+            Destination = destination.IsAndroid ? AdbClient.AndroidPath(destination.Path) : Path.TrimEndingDirectorySeparator(Path.GetFullPath(destination.Path)),
+            Exclusions = options.Exclusions.Order(StringComparer.Ordinal), Exceptions = options.Exceptions.Order(StringComparer.Ordinal) };
+        var identity = options.Direction is CopyDirection.AndroidToComputer or CopyDirection.ComputerToAndroid
+            ? JsonSerializer.Serialize(legacy)
+            : JsonSerializer.Serialize(new { Copy = legacy, SourceSerial = source.Serial, DestinationSerial = destination.Serial });
         var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity))).ToLowerInvariant();
         FilePath = Path.Combine(directory, key + ".jsonl");
         stream = new FileStream(FilePath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);

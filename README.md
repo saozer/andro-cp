@@ -1,142 +1,129 @@
 # Andro CP
 
-**Android cloning program**
+**Android cloning program** — copieur Windows / Android développé en C# avec .NET 10 et Avalonia.
 
-Auteur : **Michel Ekanga**, alias **King Saozer** — saozerkinghacker@gmail.com
+Auteur : **Michel Ekanga · King Saozer** — saozerkinghacker@gmail.com
 
-Le logo original est `logo-vector.svg`. Ses déclinaisons pour l’en-tête, l’icône de fenêtre et l’exécutable Windows sont dans `src/AndroCp.App/Assets/`. Pour les régénérer après modification du SVG : `python3 scripts/generate-icons.py` (Inkscape et Pillow requis). Les fichiers PNG/ICO générés doivent être versionnés ; aucune conversion d’image n’est nécessaire pendant les workflows de compilation.
+## Une application, deux livraisons
 
-Copieur USB Android ↔ Windows, développé en C# / .NET 10 avec Avalonia. L’interface fonctionne aussi sous Linux pour le développement.
+| Livraison Windows x64 | Contenu | Prérequis sur le PC cible |
+|---|---|---|
+| **Full** — `AndroCp-win-full-x64` | Application, runtime .NET et ADB officiel | Autorisation USB et, si nécessaire, pilote constructeur |
+| **Tiny** — `AndroCp-win-tiny-x64` | Même application, sans runtime .NET ni ADB | Runtime **.NET 10 x64** et ADB installé dans le `PATH` pour les copies Android |
 
-## Fonctionnalités communes
+Les deux livraisons offrent **exactement les mêmes fonctions**, notamment la reprise persistante et Pause / Continuer. Tiny conserve les bibliothèques de l’application et d’Avalonia ; elle n’embarque pas le runtime .NET. Aucun Python ni ARFT n’est utilisé par l’application.
 
-- Liste des appareils ADB, y compris les états non autorisés et hors ligne.
-- Copie d’un dossier Android vers un dossier local, ou inversement.
-- Sélection des dossiers locaux via une fenêtre ; saisie du chemin Android.
-- Exclusions et exceptions relatives à la source, sensibles à la casse, sans jokers.
-- Profil initial : exclure `Android`, conserver `Android/media/com.whatsapp`.
-- Aucun dossier vide issu de la source ; les fichiers de zéro octet sont conservés.
-- Préparation des noms avant le transfert : caractères Windows interdits, noms réservés et collisions, y compris la casse.
-- À chaque problème : proposition modifiable, ignorer ou annuler. Application aux problèmes similaires uniquement sur demande explicite. Le choix groupé génère une proposition adaptée à chaque nom.
-- Aucun écrasement automatique, aucune suppression de la source. Les dossiers existants sont réutilisés ; les collisions de fichiers demandent un nouveau nom ou l’abandon.
-- Fichiers temporaires `.androcp-….part`, vérification des tailles avant validation, annulation et journal JSONL.
-- Préparation des collisions avec une seule lecture de chaque dossier de destination, plutôt qu’une recherche par fichier.
+Extraire et conserver **tout le dossier** de distribution, pas seulement l’exécutable. ADB est recherché dans `platform-tools/` à côté de l’application, puis dans le `PATH`. Aucun téléchargement silencieux n’est effectué par l’application. Avec Tiny, vérifier `adb version` dans un nouveau terminal et relancer l’application après modification du `PATH`. PC → PC fonctionne sans ADB.
 
-## Prérequis et avertissements
+## Source et destination
 
-Activer le débogage USB et autoriser l’ordinateur sur le téléphone. Un pilote constructeur peut être requis sous Windows. Les protections Android restent applicables : ce n’est pas une sauvegarde système ni une extraction des données privées des applications. La présence de `com.whatsapp` ne garantit pas une sauvegarde WhatsApp restaurable.
+Chaque bloc possède son propre sélecteur d’appareil (**Ce PC** ou un Android) et son propre dossier, avec un bouton **Parcourir…**. Le trajet est déduit automatiquement :
 
-ADB est recherché dans `platform-tools/` à côté de l’exécutable, puis dans le PATH. La distribution Windows peut inclure les outils officiels Google, avec leurs notices et conditions. Aucun téléchargement silencieux n’est effectué par l’application.
+- **Android → PC** et **PC → Android** ;
+- **Android A → Android B** : deux processus ADB relaient le flux via le PC avec une mémoire tampon bornée, sans stocker une copie complète du fichier sur le PC ;
+- **Même Android → même Android** : copie locale par fichier avec `cp -n`, sans faire transiter son contenu par le PC ;
+- **PC → PC** : copie locale sans ADB.
 
-## Développement Linux / Windows
+Sur un même appareil, les dossiers source et destination doivent être distincts et **non imbriqués**, dans les deux sens. Les alias Android, notamment `/sdcard` et `/storage/emulated/0`, sont résolus avant ce contrôle. Les chemins Android peuvent être parcourus ou saisis manuellement (`/sdcard/DCIM`, `/storage/…`). Les dossiers locaux sélectionnés doivent exister.
 
-Installer le SDK .NET 10 puis :
+## Fonctions et protections
+
+- Filtres d’exclusion et exceptions relatifs à la source, sensibles à la casse, sans jokers. Le profil initial exclut `Android` et conserve `Android/media/com.whatsapp`.
+- Fichiers cachés et fichiers de zéro octet inclus ; aucun dossier vide de la source n’est reproduit.
+- Préparation des noms avant transfert : caractères interdits, noms réservés et collisions, notamment de casse sur Windows.
+- En cas de conflit : proposition de renommage modifiable, ignorer ou annuler. Une décision n’est appliquée aux problèmes similaires que sur demande explicite.
+- **Aucun écrasement silencieux et aucune suppression de la source.** Les dossiers existants peuvent être réutilisés ; les fichiers existants restent des conflits sauf s’ils appartiennent à une reprise vérifiée.
+- Transfert dans un temporaire `.androcp-….part`, contrôle de **taille et SHA-256**, puis validation sans remplacement du fichier final.
+- File durable, journal JSONL, contrôle de l’espace sur la destination et pause propre si l’espace manque.
+- Pourcentage centré calculé sur les octets validés, temps écoulé et estimation du temps restant. La progression avance à chaque fichier terminé, pas à chaque octet transmis.
+- État de connexion vérifié pour les appareils sélectionnés. Les avertissements contextuels peuvent être fermés ; leur fermeture ne désactive aucune vérification.
+
+## Utilisation
+
+1. Pour Android, activer le débogage USB, brancher les appareils et autoriser le PC, puis cliquer sur **Actualiser**.
+2. Choisir l’appareil et le dossier de chaque bloc **Source** et **Destination**.
+3. Adapter exclusions et exceptions. Elles sont relatives à la source : un filtre `Android` n’a aucun effet si la source est déjà `/sdcard/DCIM`.
+4. Garder **Reprise persistante** cochée pour retrouver la copie après fermeture ou plantage.
+5. Cliquer sur **Préparer et copier**, puis résoudre les éventuels problèmes de noms.
+
+### Pause / Continuer
+
+1. Cliquer sur **Pause**. Pendant « Mise en pause… », **ne pas débrancher** : l’arrêt des transferts et le nettoyage sont encore en cours.
+2. Attendre la confirmation de pause et la barre **orange**. Aucun transfert actif ne subsiste ; les fichiers terminés sont conservés et le chronomètre est figé.
+3. Il est alors possible de débrancher les téléphones. Rebrancher et autoriser **les mêmes appareils** avant de cliquer sur **Continuer**.
+4. L’application vérifie leur accès avant la reprise. La barre redevient **bleue** lorsque la copie redémarre ; en cas d’échec, elle reste en pause.
+
+Les appareils, chemins et filtres restent verrouillés pendant la session. Le fichier interrompu est **recommencé depuis zéro**, tandis que les fichiers terminés sont vérifiés puis ignorés. Le temps passé en pause n’est pas compté. Un nouvel inventaire et la vérification des fichiers peuvent prendre du temps.
+
+**Annuler** abandonne la session ouverte en conservant les fichiers terminés. Si la reprise persistante est décochée, Pause / Continuer reste disponible dans la session, grâce à une file dédiée ; cette file n’est pas retrouvée automatiquement après fermeture.
+
+### Reprise persistante
+
+Disponible dans **tous les modes**, en Full comme en Tiny. Après fermeture, choisir les mêmes appareils, chemins et filtres, puis relancer **Préparer et copier**. Les décisions de renommage enregistrées dans la file sont conservées.
+
+- La file append-only se trouve dans `%LOCALAPPDATA%/AndroCp/queues`. Elle est isolée par appareils, trajet, chemins et filtres, et verrouillée pendant son utilisation. Les identités des anciennes files PC ↔ Android sont conservées.
+- Les entrées passent de `queued` à `pending`, puis à `completed`. Après interruption, les `pending` deviennent `retry`. Une dernière ligne tronquée par un plantage est récupérable ; une corruption antérieure provoque un arrêt explicite.
+- Le SHA-256 attendu est persisté avant la validation finale. Une interruption après le renommage final est ainsi récupérable sans doublon ni écrasement.
+- Les fichiers terminés sont également revérifiés par SHA-256. Un fichier final manquant peut être recopié ; un fichier final modifié n’est pas écrasé.
+- Une source dont la taille ou la date a changé depuis l’inventaire de la file est refusée. Utiliser le téléphone pendant la pause peut déclencher ce conflit, notamment pour des données d’application.
+
+Ne pas supprimer la file si l’on souhaite conserver la reprise et les renommages. Sans la file, les fichiers déjà présents redeviennent des collisions normales, pas des fichiers automatiquement adoptés comme terminés.
+
+### Espace limité
+
+Avec **Reprise persistante**, cocher **Poursuivre avec l’espace disponible** pour avancer fichier par fichier sur n’importe quelle destination. Si le prochain fichier ne tient pas, la copie passe en pause orange. Libérer de l’espace puis cliquer sur **Continuer**.
+
+Chaque nouveau fichier exige sa taille entière plus **8 Mio de marge**. Un temporaire appartenant à l’entrée de reprise peut être nettoyé avant le nouveau contrôle. Les fichiers terminés ne nécessitent pas une deuxième copie. Sans cette option, le contrôle initial exige l’espace de tous les fichiers restant à transférer. Aucun dossier parent n’est créé pour le prochain transfert si son contrôle d’espace échoue ; une interruption antérieure peut toutefois laisser des parents vides.
+
+## Prérequis et limites
+
+- Ce programme copie les fichiers accessibles, **pas une image système Android**. Les données privées et certains dossiers protégés restent inaccessibles. Copier `com.whatsapp` ne garantit pas une sauvegarde WhatsApp restaurable.
+- Ne pas modifier les sources pendant la copie. Les vérifications taille/date ne détectent pas une modification volontaire conservant ces deux valeurs ; le SHA-256 vérifie le contenu transféré, pas un instantané global de l’appareil.
+- Pas de conservation générale des métadonnées, permissions et horodatages. Les liens symboliques/jonctions sont refusés plutôt que suivis, hors alias racine Android résolus pour la sélection.
+- Transferts séquentiels et commandes ADB par fichier : les très grandes collections peuvent être lentes. L’estimation restante est approximative, se base sur les transferts effectifs et peut rester « calcul en cours ».
+- Une interruption peut laisser des parents vides ou un `.part`, notamment si Android est déconnecté. Aucun dossier utilisateur n’est supprimé pour les nettoyer.
+- Les erreurs de fichiers sont consignées et le transfert continue ; un inventaire incomplet bloque la copie. Les chemins Windows très longs peuvent échouer selon le système de fichiers et la configuration.
+- Les files et journaux contiennent des chemins potentiellement sensibles. Les journaux se trouvent dans `%LOCALAPPDATA%/AndroCp/journals` ; sous Linux, dans le dossier de données locales correspondant. Éviter de copier les propres dossiers d’état actifs d’Andro CP.
+- Ne pas lancer deux copies vers la même destination. Les contrôles d’existence et de liens ne protègent pas contre un autre processus modifiant simultanément l’arborescence.
+- L’exécutable n’est pas signé : Windows SmartScreen peut afficher un avertissement. Des essais sur une vraie machine Windows et plusieurs téléphones restent nécessaires avant distribution.
+
+## Développement et tests
+
+Installer le SDK .NET 10 :
 
 ```sh
-dotnet run --project tests/AndroCp.Tests
-dotnet build src/AndroCp.App
+dotnet run --project tests/AndroCp.Tests -c Release
+dotnet build AndroCp.slnx -c Release
 dotnet run --project src/AndroCp.App
 ```
 
-Les tests sont un exécutable sans framework externe. Ils ne touchent pas aux téléphones. Les fichiers de test sont créés dans un répertoire temporaire dédié et nettoyés.
+L’interface fonctionne aussi sous Linux pour le développement. Les tests sont un exécutable sans framework externe. Ils utilisent des fichiers temporaires et des processus ADB simulés, **jamais de vrais téléphones**. Les scénarios d’intégration Android sont exécutés sous Linux, notamment le relais binaire, `cp` local, les alias et les pauses en cours de transfert.
 
-## Produire l’application Windows
+Le logo original est `logo-vector.svg`. Les PNG/ICO pour l’en-tête, la fenêtre et l’exécutable sont dans `src/AndroCp.App/Assets/`. La commande facultative `python3 scripts/generate-icons.py` exige Inkscape et Pillow pour les régénérer ; elle n’est pas nécessaire pour compiler ni utiliser l’application. Les images générées sont versionnées.
+
+## Produire les livraisons Windows
 
 Depuis Windows avec le SDK .NET 10 :
 
 ```powershell
+# Full : runtime .NET et ADB intégrés
 ./scripts/publish-windows.ps1
+
+# Tiny : runtime .NET et ADB externes
+./scripts/publish-windows.ps1 -Tiny
 ```
 
-Le résultat par défaut est `artifacts/AndroCp-win-adb-x64/AndroCp.exe` avec le runtime .NET inclus et `platform-tools/`. Distribuer le dossier entier. Le script télécharge les Platform Tools officiels via HTTPS et enregistre le SHA-256 de l’archive (traçabilité, pas une signature de confiance). Utiliser `-WithoutAdb` pour un environnement possédant déjà ADB.
+Les résultats sont `artifacts/AndroCp-win-full-x64/` et `artifacts/AndroCp-win-tiny-x64/`. Full télécharge les Platform Tools officiels via HTTPS, conserve leurs notices, vérifie les fichiers ADB et lance `adb version`. Le SHA-256 de l’archive est enregistré pour la traçabilité, pas comme signature de confiance.
 
-| Workflow GitHub Actions | Script | Artefact | Contenu |
-|---|---|---|---|
-| `Build Windows Tiny sans ADB` (`windows-tiny.yml`) | `-WithoutAdb` | `AndroCp-win-tiny-x64` | Version de base, ADB du PATH, sans Python ni reprise automatique |
-| `Build Windows ADB` (`windows.yml`) | sans option | `AndroCp-win-adb-x64` | Version de base avec ADB, sans Python ni reprise automatique |
-| `Build Windows ARFT et reprise` (`windows-arft.yml`) | `-WithArft` | `AndroCp-win-arft-x64` | ADB + Python portable + ARFT + reprise dans les deux sens |
+| Workflow GitHub Actions | Script | Artefact |
+|---|---|---|
+| `Build Windows Full` — `windows-full.yml` | sans option | `AndroCp-win-full-x64` |
+| `Build Windows Tiny` — `windows-tiny.yml` | `-Tiny` | `AndroCp-win-tiny-x64` |
 
-Chaque workflow est déclenchable via **Actions → nom du workflow → Run workflow**. Il produit son propre artefact et son propre dossier de sortie. Le runtime .NET est inclus dans les trois variantes ; « Tiny » signifie sans ADB/Python, pas sans runtime .NET. Aucun dépôt distant n’est créé automatiquement.
+Chaque workflow exécute les tests simulés sous Linux avant le packaging Windows. Déclenchement sur `main`, `master`, `stable`, pull request ou manuellement via **Actions → Run workflow**. Aucun dépôt distant n’est créé automatiquement.
 
-### Windows cible avec ADB déjà installé
-
-```powershell
-./scripts/publish-windows.ps1 -WithoutAdb
-```
-
-L’application utilise alors `adb.exe` dans le PATH Windows. Vérifier `adb version` dans un nouveau terminal et relancer l’application après toute modification du PATH. Aucune installation .NET n’est nécessaire pour la publication autonome (`--self-contained true`).
-
-**Les variantes ADB et ARFT incluent ADB.** Le packaging vérifie `adb.exe`, ses deux DLL Windows et `NOTICE.txt`, puis exécute `adb version`. Télécharger et extraire tout l’artefact, pas seulement le `.exe`. Le copieur privilégie cet ADB intégré par rapport à celui du PATH.
-
-### Variante ARFT et reprise persistante
-
-Sur Windows, le packaging ARFT exige aussi Python/pip sur la machine de compilation (fourni par `setup-python` dans le workflow) :
-
-```powershell
-./scripts/publish-windows.ps1 -WithArft
-```
-
-Il embarque Python **3.14.10** au format Windows embeddable, ARFT **0.6.0**, `tqdm` et `colorama`. Les roues Python sont épinglées et leurs SHA-256 vérifiés via `--require-hashes`. Les notices Python et les licences des paquets restent dans l’artefact. Aucun Python ni pip n’est requis sur le PC cible. Le build teste l’import et la compatibilité du pont avec le vrai Python portable avant de livrer l’artefact.
-
-Dans cette variante, la case **Reprise persistante** est activée par défaut. Pour reprendre, sélectionner le même téléphone, le même sens, les mêmes chemins et les mêmes filtres, puis cliquer à nouveau sur **Préparer et copier**. Les décisions de renommage sont conservées. Décocher cette option utilise la copie classique.
-
-**Espace limité, Android → PC :** cocher aussi **Poursuivre avec l’espace disponible**. Ce mode ne bloque pas sur la taille totale restante : il valide les fichiers déjà terminés sans les recopier, puis contrôle l’espace avant chaque nouveau fichier. Il s’arrête proprement si le prochain fichier ne tient pas, en conservant son état `pending` pour la prochaine reprise. Il faut au minimum la taille entière de ce fichier plus **8 Mio de marge** ; la reprise d’un fichier interrompu se fait depuis zéro. Après avoir libéré de l’espace, relancer avec les mêmes paramètres. Sans cette option, le contrôle initial exige que tous les fichiers restants tiennent sur le disque. Les temporaires appartenant à l’entrée de reprise sont nettoyés avant son contrôle par fichier.
-
-Les fichiers déjà terminés ne nécessitent pas une seconde copie. Les déplacer ou les supprimer de la destination les rend toutefois manquants : une nouvelle reprise tentera de les recopier. Ne pas effacer la file pour contourner l’espace insuffisant. Les fichiers provenant d’une ancienne copie sans cette file restent des collisions à traiter, pas des fichiers silencieusement adoptés comme terminés.
-
-- **Android → PC** : le pont `python/bridge.py` utilise la primitive `pull_one_file` d’ARFT pour transférer et vérifier le fichier dans un staging dédié. Le moteur C# garde le contrôle des exclusions, des noms et de la validation finale sans écrasement. La CLI ARFT complète n’est volontairement pas appelée, car elle peut remplacer les fichiers finaux. La reprise est gérée par notre file durable, pas par les fichiers `.arft-*` de la CLI.
-- **PC → Android** : chaque fichier commence en `queued`. Au redémarrage de la copie, les `pending` deviennent `retry`. Avant un transfert, `queued/retry` passe en `pending` et cet état est synchronisé sur disque. Après vérification et validation du fichier final, il devient `completed`. En cas d’échec, il reste `pending` pour une prochaine relance.
-- Un fichier interrompu est **recommencé depuis zéro**, jamais repris au dernier octet.
-- La file est un journal append-only dans `%LOCALAPPDATA%/AndroCp/queues`. Elle est isolée par téléphone, sens, chemins et filtres, et verrouillée pendant son utilisation. Une dernière ligne tronquée par un plantage est récupérable ; une corruption antérieure provoque un arrêt explicite.
-- Avant la validation finale, le SHA-256 du contenu attendu est persisté. Si une interruption survient après le renommage final mais avant `completed`, la relance reconnaît le fichier par son SHA-256, sans le retransférer ni l’écraser.
-- Les fichiers déjà `completed` sont également revérifiés par SHA-256 à la reprise. Cela peut prendre du temps sur une grosse sauvegarde ; il ne s’agit pas du mode rapide sans vérification de la CLI ARFT.
-- La source est comparée à l’inventaire précédent par taille et date de modification. Une source modifiée bloque la reprise concernée : choisir une nouvelle destination. Une destination de reprise modifiée est signalée et n’est pas écrasée.
-
-Ne pas supprimer la file si vous souhaitez conserver la reprise et les renommages. Les files et journaux contiennent des chemins potentiellement sensibles. Une perte de la file ne transforme pas les fichiers existants en fichiers appartenant à la copie : ils redeviennent des collisions normales.
-
-Tests du pont, sans téléphone, dans un environnement Python de développement :
+Compilation croisée Tiny depuis Linux (sans packaging ADB) :
 
 ```sh
-python -m pip install --require-hashes --only-binary=:all: -r python/requirements.txt
-python -m unittest discover -s python -p 'test_*.py' -v
-python python/bridge.py --check
+dotnet publish src/AndroCp.App -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o artifacts/AndroCp-win-tiny-x64
 ```
-
-Une compilation croisée sans ADB est possible depuis Linux :
-
-```sh
-dotnet publish src/AndroCp.App -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o artifacts/AndroCp-win-tiny-x64
-```
-
-L’exécutable n’est pas signé. Windows SmartScreen peut afficher un avertissement. Un test sur une vraie machine Windows et plusieurs téléphones reste nécessaire avant distribution.
-
-## Utilisation
-
-1. Brancher le téléphone, accepter son autorisation, puis cliquer sur **Actualiser**.
-2. Choisir l’appareil et le sens de copie.
-3. Saisir le dossier Android (`/sdcard`, `/sdcard/DCIM`, etc.) et choisir un dossier local existant.
-4. Adapter les filtres. Ils sont relatifs au dossier source : si la source est `/sdcard/DCIM`, un filtre `Android` n’a aucun effet.
-5. Cliquer sur **Préparer et copier**, puis résoudre les éventuels problèmes de noms.
-
-Le statut sous la liste décrit uniquement le téléphone sélectionné. Il est revérifié à la sélection, après **Actualiser**, avant et après une copie : nouvelle lecture de l’état ADB puis commande shell inoffensive sur l’appareil choisi. Le bouton de copie n’est activé qu’après confirmation de l’accès. Le bandeau de connexion disparaît lorsque l’appareil est connecté et autorisé ; il réapparaît si une vérification échoue. Les états `unauthorized`, `offline`, déconnecté et ADB indisponible ont chacun leur message. Les conseils généraux et restrictions de dossiers restent dans la section repliable **Informations Android et limites d’accès** : l’accès à ADB n’implique pas l’accès à toutes les données.
-
-Le bandeau possède une croix de fermeture. Un problème identique sur le même téléphone reste masqué pendant la session, même après une revérification. Un autre état ou un autre appareil peut afficher un nouvel avertissement. Le statut ADB et le blocage d’une copie non autorisée restent actifs, même quand le bandeau est fermé.
-
-Sous la barre de progression figurent le **temps écoulé** (actualisé chaque seconde) et le **temps restant estimé**. L’estimation utilise le débit des fichiers réellement transférés, sans compter les données simplement réutilisées par la reprise, et exclut du volume restant les fichiers ignorés. Pendant l’inventaire ou lorsque le débit ne peut pas encore être estimé de façon raisonnable, l’interface affiche « calcul en cours ». Le temps écoulé reste visible après une fin, une annulation ou une pause ; le temps restant d’une copie interrompue est laissé indéterminé.
-
-Les journaux sont dans `%LOCALAPPDATA%/AndroCp/journals` sous Windows et dans le dossier de données locales correspondant sous Linux. Ils contiennent les chemins, les renommages et les erreurs : attention à leur confidentialité.
-
-## Limites de cette version
-
-- Pas encore de navigateur de dossiers Android, copie Android ↔ Android, ni conservation générale des métadonnées/horodatages. La reprise n’est activée dans l’interface que pour la variante ARFT.
-- La progression avance par fichier terminé, pas en continu à l’intérieur d’un gros fichier. La vitesse est une moyenne depuis le lancement, préparation comprise.
-- Le temps restant est approximatif et dépend de ces mises à jour par fichier. Pendant un très gros fichier, une estimation ancienne est retirée plutôt que présentée comme fiable ; le chronomètre continue de tourner.
-- Les transferts eux-mêmes sont encore séquentiels et utilisent des commandes ADB par fichier ; les transferts groupés restent à implémenter avant de viser des collections de plusieurs centaines de milliers de fichiers.
-- L’espace disponible est précontrôlé pour les disques Windows ; ailleurs une saturation provoque une erreur de transfert.
-- Copie classique : vérification des tailles uniquement. Variante reprise : SHA-256 pour reconnaître les fichiers déjà validés. Ne pas modifier les sources pendant la copie ; les fichiers modifiés en conservant volontairement taille et date ne sont pas détectés par l’inventaire seul.
-- Les liens/jonctions sont refusés plutôt que suivis. Les noms sont traités comme UTF-8 côté Android.
-- Les chemins Windows très longs peuvent encore échouer selon la configuration Windows et les limites du système de fichiers. Ils sont signalés dans le journal ; aucun fichier source n’est modifié.
-- Une interruption peut laisser des dossiers parents vides ou, en cas de déconnexion Android, un fichier `.part`. Aucun dossier utilisateur n’est supprimé pour les nettoyer.
-- Les erreurs de fichiers sont consignées et le transfert continue ; un inventaire incomplet bloque la copie pour éviter un faux succès.
-
-Ne pas lancer deux copies vers la même destination. Les contrôles de liens et d’existence ne constituent pas une protection contre un autre processus malveillant modifiant simultanément l’arborescence.

@@ -5,10 +5,30 @@ public record AndroidDevice(string Serial, string State, string Model)
     public override string ToString() => $"{Model} — {Serial} ({State})";
 }
 
-public enum CopyDirection { AndroidToComputer, ComputerToAndroid }
+public record CopyDevice(string? Serial, string Name, string State = "local")
+{
+    public bool IsComputer => Serial is null;
+    public static CopyDevice Computer { get; } = new(null, "Ce PC");
+    public override string ToString() => IsComputer ? Name : $"{Name} — {Serial} ({State})";
+}
+public record CopyEndpoint(string? Serial, string Path)
+{
+    public bool IsAndroid => Serial is not null;
+}
+public enum CopyDirection { AndroidToComputer, ComputerToAndroid, AndroidToAndroid, ComputerToComputer }
 public record CopyOptions(CopyDirection Direction, string Serial, string Source, string Destination,
-    IReadOnlyList<string> Exclusions, IReadOnlyList<string> Exceptions, bool EnableResume = false, bool UseArft = false,
-    bool AllowPartialSpace = false);
+    IReadOnlyList<string> Exclusions, IReadOnlyList<string> Exceptions, bool EnableResume = true,
+    bool AllowPartialSpace = false, string? DestinationSerial = null)
+{
+    public CopyEndpoint SourceEndpoint => new(Direction is CopyDirection.AndroidToComputer or CopyDirection.AndroidToAndroid ? Serial : null, Source);
+    public CopyEndpoint DestinationEndpoint => new(Direction is CopyDirection.ComputerToAndroid or CopyDirection.AndroidToAndroid ? DestinationSerial ?? Serial : null, Destination);
+    public static CopyOptions Between(CopyEndpoint source, CopyEndpoint destination, IReadOnlyList<string> exclusions,
+        IReadOnlyList<string> exceptions, bool allowPartialSpace = false) => new(
+            source.IsAndroid ? destination.IsAndroid ? CopyDirection.AndroidToAndroid : CopyDirection.AndroidToComputer
+                : destination.IsAndroid ? CopyDirection.ComputerToAndroid : CopyDirection.ComputerToComputer,
+            source.Serial ?? destination.Serial ?? "local", source.Path, destination.Path, exclusions, exceptions,
+            EnableResume: true, AllowPartialSpace: allowPartialSpace, DestinationSerial: destination.Serial);
+}
 public record SourceFile(string RelativePath, long Size, long? ModifiedTicks = null);
 public record CopyProgress(int Completed, int Total, long Bytes, long TotalBytes, string Current, long? TransferredBytes = null)
 {

@@ -1,22 +1,31 @@
-name: Build Windows Tiny sans ADB
+name: Build Windows Tiny
 on:
   workflow_dispatch:
   push:
-    branches: [main, master]
+    branches: [main, master, stable]
   pull_request:
 permissions:
   contents: read
 jobs:
+  native-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-dotnet@v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+      - run: dotnet run --project tests/AndroCp.Tests -c Release
   windows:
+    needs: native-tests
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-dotnet@v6.0.0
         with:
           dotnet-version: '10.0.x'
-      - name: Tests et publication sans ADB ni Python
+      - name: Tests et publication sans runtime .NET ni ADB
         shell: pwsh
-        run: ./scripts/publish-windows.ps1 -WithoutAdb
+        run: ./scripts/publish-windows.ps1 -Tiny
       - uses: actions/upload-artifact@v7.0.2
         with:
           name: AndroCp-win-tiny-x64

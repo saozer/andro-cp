@@ -1,38 +1,6 @@
 using AndroCp.Core;
 using System.Diagnostics;
 
-// Cross-platform fake adb for the packaging smoke test. ARFT calls adb pull directly.
-if (args.Length > 0 && args[0] == "pull")
-{
-    if (Environment.GetEnvironmentVariable("ANDROID_SERIAL") != "smoke-serial")
-        throw new Exception("ARFT n’a pas sélectionné le téléphone demandé.");
-    File.WriteAllBytes(args[2], new byte[] { 0, 1, 2, 255 });
-    Console.WriteLine("Fake ADB pull OK");
-    return;
-}
-if (args.Length == 3 && args[0] == "--arft-smoke")
-{
-    var temporary = Path.Combine(OperatingSystem.IsWindows() ? Path.GetTempPath() : "/tmp/opencode",
-        "androcp-arft-smoke-" + Guid.NewGuid().ToString("N"));
-    Directory.CreateDirectory(temporary);
-    try
-    {
-        using var worker = new ArftClient(Environment.ProcessPath!, "smoke-serial", Console.Error.WriteLine,
-            CancellationToken.None, Path.GetFullPath(args[1]), Path.GetFullPath(args[2]));
-        var destination = Path.Combine(temporary, "été.bin");
-        await worker.DownloadAsync("/sdcard/été.bin", destination, 4, CancellationToken.None);
-        if (!File.ReadAllBytes(destination).SequenceEqual(new byte[] { 0, 1, 2, 255 })) throw new Exception("Contenu ARFT incorrect.");
-        var rejected = false;
-        var wrong = Path.Combine(temporary, "wrong.bin");
-        try { await worker.DownloadAsync("/sdcard/wrong.bin", wrong, 5, CancellationToken.None); }
-        catch (IOException) { rejected = true; }
-        if (!rejected || File.Exists(wrong)) throw new Exception("Validation des tailles ARFT incorrecte.");
-        Console.WriteLine("ARFT smoke OK : C# → Python → ARFT → ADB simulé, binaire, Unicode, sélection et erreurs.");
-    }
-    finally { Directory.Delete(temporary, true); }
-    return;
-}
-
 if (args.Length > 0 && args[0] == "devices")
 {
     Console.WriteLine("List of devices attached");
@@ -43,9 +11,18 @@ if (args.Length > 0 && args[0] == "devices")
 // A subprocess fixture exercises real byte transfers without any connected phone.
 if (args.Length > 0 && args[0] == "-s" && !OperatingSystem.IsWindows())
 {
-    var fakeRoot = Environment.GetEnvironmentVariable("ANDROCP_FAKE_ROOT") ?? throw new Exception("Missing fake root");
+    var roots = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(Environment.GetEnvironmentVariable("ANDROCP_FAKE_ROOTS") ?? "{}");
+    var fakeRoot = roots!.TryGetValue(args[1], out var configured) ? configured : Environment.GetEnvironmentVariable("ANDROCP_FAKE_ROOT") ?? throw new Exception("Missing fake root");
+    var trace = Environment.GetEnvironmentVariable("ANDROCP_FAKE_TRACE");
+    if (trace is not null) File.WriteAllText(Path.Combine(trace, Environment.ProcessId + "-" + Guid.NewGuid().ToString("N") + ".json"), System.Text.Json.JsonSerializer.Serialize(args));
     if (args[2] == "push")
     {
+        if (Environment.GetEnvironmentVariable("ANDROCP_FAKE_SLOW_IO") == "push" && Path.GetFileName(args[3]) == "b.txt")
+        {
+            File.WriteAllText(args[4].Replace("/sdcard", fakeRoot, StringComparison.Ordinal), "partial");
+            File.WriteAllText(Path.Combine(Environment.GetEnvironmentVariable("ANDROCP_FAKE_SIGNAL_DIRECTORY")!, Environment.ProcessId.ToString()), "started");
+            await Task.Delay(Timeout.InfiniteTimeSpan);
+        }
         if (Environment.GetEnvironmentVariable("ANDROCP_FAKE_FAIL_PUSH") == "1")
         {
             Console.Error.WriteLine("Transfert interrompu simulé");
@@ -55,7 +32,21 @@ if (args.Length > 0 && args[0] == "-s" && !OperatingSystem.IsWindows())
         File.Copy(args[3], args[4].Replace("/sdcard", fakeRoot, StringComparison.Ordinal), overwrite: true);
         return;
     }
-    var command = args[^1].Replace("/sdcard", fakeRoot, StringComparison.Ordinal);
+    var command = args[^1].Replace("/storage/emulated/0", fakeRoot, StringComparison.Ordinal).Replace("/sdcard", fakeRoot, StringComparison.Ordinal);
+    if (Environment.GetEnvironmentVariable("ANDROCP_FAKE_SLOW_IO") == "cp" && command.StartsWith("cp -n ", StringComparison.Ordinal) && command.Contains("/b.txt", StringComparison.Ordinal))
+    {
+        File.WriteAllText(command.Split('\'')[3], "partial");
+        File.WriteAllText(Path.Combine(Environment.GetEnvironmentVariable("ANDROCP_FAKE_SIGNAL_DIRECTORY")!, Environment.ProcessId.ToString()), "started");
+        await Task.Delay(Timeout.InfiniteTimeSpan);
+    }
+    if (Environment.GetEnvironmentVariable("ANDROCP_FAKE_SLOW_IO") == "download" && command.StartsWith("cat ", StringComparison.Ordinal) && command.Contains("/b.txt", StringComparison.Ordinal))
+    {
+        var output = Console.OpenStandardOutput();
+        output.Write(new byte[] { 0, 1, 2, 3 });
+        output.Flush();
+        File.WriteAllText(Path.Combine(Environment.GetEnvironmentVariable("ANDROCP_FAKE_SIGNAL_DIRECTORY")!, Environment.ProcessId.ToString()), "started");
+        await Task.Delay(Timeout.InfiniteTimeSpan);
+    }
     if (command.Contains("androcp-access-ok", StringComparison.Ordinal))
     {
         if (Environment.GetEnvironmentVariable("ANDROCP_FAKE_FAIL_PROBE") == "1")
@@ -141,6 +132,50 @@ Check(new CopyProgress(10, 10, 75, 100, "Terminé").Percentage == 75, "Ne pas af
 Check(new CopyProgress(1, 2, 0, 0, "copie").Percentage == 50, "Pourcentage par fichiers pour une copie de fichiers vides");
 Check(new CopyProgress(0, 0, 0, 0, "Terminé").Percentage == 100, "Une copie vide terminée affiche 100 %");
 Check(new CopyProgress(1, 1, 110, 100, "copie").Percentage == 100, "Borner le pourcentage à 100 %");
+Check(CopyOptions.Between(new(null, "/a"), new(null, "/b"), [], []).Direction == CopyDirection.ComputerToComputer,
+    "Déduire PC → PC sans sélecteur de sens");
+Check(CopyOptions.Between(new("A", "/sdcard/a"), new("B", "/sdcard/b"), [], []).DestinationEndpoint.Serial == "B",
+    "Conserver deux identifiants distincts pour Android → Android");
+Check(CopyOptions.Between(new("A", "/sdcard/a"), new("A", "/sdcard/b"), [], []).Direction == CopyDirection.AndroidToAndroid,
+    "Autoriser le même Android pour les deux emplacements");
+foreach (var pair in new[] { ("/a", "/a"), ("/a", "/a/child"), ("/a/child", "/a") })
+{
+    var rejected = false;
+    try { CopyPathSafety.RejectOverlapping(pair.Item1, pair.Item2, false); } catch (IOException) { rejected = true; }
+    Check(rejected, "Refuser les chemins identiques ou imbriqués : " + pair);
+}
+CopyPathSafety.RejectOverlapping("/a", "/another", false);
+Check(true, "Ne pas confondre un préfixe de nom et un dossier enfant");
+using (var session = new CopySession(new(CopyDirection.AndroidToComputer, "session-test", "/sdcard", "/local", [], []), "session-queue"))
+{
+    var firstRun = session.BeginRun();
+    Check(session.State == CopySessionState.Running && session.Clock.IsRunning && session.Options.EnableResume,
+        "Toute variante possède une file pour la pause de session");
+    session.Report(new(1, 10, 100, 1000, "a", 100));
+    session.RequestPause();
+    Check(session.State == CopySessionState.Pausing && firstRun.IsCancellationRequested,
+        "Demander pause annule le transfert mais ne confirme pas encore la déconnexion");
+    var prematureResume = false;
+    try { session.BeginRun(); } catch (InvalidOperationException) { prematureResume = true; }
+    Check(prematureResume, "Interdire Continuer avant la fin de l’arrêt du transfert");
+    session.ConfirmPaused();
+    session.EndRun();
+    var frozen = session.Clock.Elapsed;
+    Check(session.State == CopySessionState.Paused && !session.Clock.IsRunning && session.Clock.Elapsed == frozen,
+        "La pause confirmée fige le chronomètre");
+    var nextRun = session.BeginRun();
+    Check(session.State == CopySessionState.Running && !nextRun.IsCancellationRequested && session.Clock.Elapsed >= frozen,
+        "Continuer utilise un nouveau token et conserve le temps de copie consommé");
+    var recheck = session.Report(new(0, 10, 0, 1000, "réexamen", 0));
+    Check(recheck.Percentage == 10 && recheck.TransferredBytes == 100, "Ne pas remettre le pourcentage à zéro pendant le réexamen de reprise");
+    var more = session.Report(new(4, 10, 400, 1000, "b", 300));
+    Check(more.Percentage == 40 && more.TransferredBytes == 400, "Cumuler les volumes réellement transférés avant et après la pause");
+    session.Cancel();
+    session.EndRun();
+    var cancelledResume = false;
+    try { session.BeginRun(); } catch (InvalidOperationException) { cancelledResume = true; }
+    Check(session.State == CopySessionState.Cancelled && cancelledResume, "Annuler abandonne la session au lieu de la mettre en pause");
+}
 var temporaryRoot = OperatingSystem.IsWindows() ? Path.GetTempPath() : "/tmp/opencode";
 var root = Path.Combine(temporaryRoot, "androcp-tests-" + Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(root);
@@ -370,8 +405,200 @@ try
             spaceOptions, Resolve, new Progress<CopyProgress>(), _ => { }, CancellationToken.None);
         Check(allComplete.Copied == 0 && allComplete.Skipped == 2 && !allComplete.PausedForSpace,
             "Reprise entièrement terminée sans espace supplémentaire pour les données");
+
+        foreach (var direction in new[] { CopyDirection.ComputerToAndroid, CopyDirection.AndroidToComputer })
+        {
+            var label = direction == CopyDirection.ComputerToAndroid ? "push" : "download";
+            var area = Path.Combine(root, "pause-" + label);
+            var remoteRoot = Path.Combine(area, "phone");
+            var computerRoot = Path.Combine(area, "computer");
+            var signals = Path.Combine(area, "signals");
+            var queues = Path.Combine(area, "queues");
+            Directory.CreateDirectory(remoteRoot);
+            Directory.CreateDirectory(computerRoot);
+            Directory.CreateDirectory(signals);
+            var source = direction == CopyDirection.ComputerToAndroid ? computerRoot : remoteRoot;
+            var pauseDestination = direction == CopyDirection.ComputerToAndroid ? remoteRoot : computerRoot;
+            File.WriteAllText(Path.Combine(source, "a.txt"), "already completed");
+            var pauseOptions = new CopyOptions(direction, "pause-device", direction == CopyDirection.ComputerToAndroid ? computerRoot : "/sdcard",
+                direction == CopyDirection.ComputerToAndroid ? "/sdcard" : computerRoot, [], [], true);
+            Environment.SetEnvironmentVariable("ANDROCP_FAKE_ROOT", remoteRoot);
+            var pauseEngine = new CopyEngine(fake, queues);
+            await pauseEngine.CopyAsync(pauseOptions, Resolve, new Progress<CopyProgress>(), _ => { }, CancellationToken.None);
+            File.WriteAllText(Path.Combine(source, "b.txt"), "file restarted from zero");
+            using var session = new CopySession(pauseOptions, queues);
+            var run = session.BeginRun();
+            Environment.SetEnvironmentVariable("ANDROCP_FAKE_SLOW_IO", label);
+            Environment.SetEnvironmentVariable("ANDROCP_FAKE_SIGNAL_DIRECTORY", signals);
+            var started = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var watcher = new FileSystemWatcher(signals);
+            watcher.Created += (_, change) => { if (int.TryParse(change.Name, out var pid)) started.TrySetResult(pid); };
+            watcher.EnableRaisingEvents = true;
+            var transfer = pauseEngine.CopyAsync(session.Options, Resolve, new Progress<CopyProgress>(), _ => { }, run.Token);
+            int child;
+            try { child = await started.Task.WaitAsync(TimeSpan.FromSeconds(15)); }
+            catch
+            {
+                session.Cancel();
+                try { await transfer; } catch (Exception) { }
+                throw;
+            }
+            session.RequestPause();
+            var interrupted = false;
+            try { await transfer; }
+            catch (Exception) when (run.IsCancellationRequested) { interrupted = true; }
+            session.ConfirmPaused();
+            session.EndRun();
+            Check(interrupted && session.State == CopySessionState.Paused && !session.Clock.IsRunning,
+                label + " : pause au milieu d’un fichier, confirmée seulement après arrêt de la tâche");
+            var stopped = false;
+            try { using var process = Process.GetProcessById(child); stopped = process.HasExited; }
+            catch (ArgumentException) { stopped = true; }
+            Check(stopped, label + " : aucun processus ADB ne continue le transfert après confirmation de pause");
+            Check(File.ReadAllText(Path.Combine(pauseDestination, "a.txt")) == "already completed" && !File.Exists(Path.Combine(pauseDestination, "b.txt")),
+                label + " : conserver les fichiers terminés sans exposer de fichier final partiel");
+            Environment.SetEnvironmentVariable("ANDROCP_FAKE_SLOW_IO", null);
+            Environment.SetEnvironmentVariable("ANDROCP_FAKE_SIGNAL_DIRECTORY", null);
+            Environment.SetEnvironmentVariable("ANDROCP_FAKE_DEVICE_LIST", "");
+            Check(!(await fake.CheckConnectionAsync("pause-device", CancellationToken.None)).CanCopy && session.State == CopySessionState.Paused,
+                label + " : une déconnexion n’annule pas la session en pause");
+            Environment.SetEnvironmentVariable("ANDROCP_FAKE_DEVICE_LIST", "pause-device device model:Pause_phone\n");
+            Check((await fake.CheckConnectionAsync("pause-device", CancellationToken.None)).CanCopy,
+                label + " : vérifier le même téléphone après reconnexion");
+            var continuedRun = session.BeginRun();
+            var continued = await pauseEngine.CopyAsync(session.Options, Resolve, new Progress<CopyProgress>(), _ => { }, continuedRun.Token);
+            session.Complete();
+            session.EndRun();
+            Check(continued.Copied == 1 && continued.Skipped == 1 && continued.Failed == 0 &&
+                File.ReadAllText(Path.Combine(pauseDestination, "b.txt")) == "file restarted from zero",
+                label + " : Continuer ignore le fichier terminé et rejoue le fichier interrompu sans doublon");
+            Environment.SetEnvironmentVariable("ANDROCP_FAKE_DEVICE_LIST", null);
+        }
         Environment.SetEnvironmentVariable("ANDROCP_FAKE_ROOT", null);
+
+        var phoneA = Path.Combine(root, "phone-A");
+        var phoneB = Path.Combine(root, "phone-B");
+        var tracing = Path.Combine(root, "trace");
+        var multiQueues = Path.Combine(root, "multi-queues");
+        Directory.CreateDirectory(Path.Combine(phoneA, "source", ".hidden"));
+        Directory.CreateDirectory(Path.Combine(phoneA, "source", "empty"));
+        Directory.CreateDirectory(Path.Combine(phoneA, "source", "excluded", "keep"));
+        Directory.CreateDirectory(phoneB); Directory.CreateDirectory(tracing);
+        var payload = Enumerable.Range(0, 2 * 1024 * 1024).Select(i => (byte)(i % 256)).ToArray();
+        File.WriteAllBytes(Path.Combine(phoneA, "source", "été.bin"), payload);
+        File.WriteAllText(Path.Combine(phoneA, "source", ".hidden", ".nomedia"), "");
+        File.WriteAllText(Path.Combine(phoneA, "source", "bad:name.txt"), "Android name");
+        File.WriteAllText(Path.Combine(phoneA, "source", "excluded", "drop.txt"), "excluded");
+        File.WriteAllText(Path.Combine(phoneA, "source", "excluded", "keep", "keep.txt"), "exception");
+        Environment.SetEnvironmentVariable("ANDROCP_FAKE_ROOTS", System.Text.Json.JsonSerializer.Serialize(new Dictionary<string, string> { ["A"] = phoneA, ["B"] = phoneB }));
+        Environment.SetEnvironmentVariable("ANDROCP_FAKE_TRACE", tracing);
+        var multiEngine = new CopyEngine(fake, multiQueues);
+        var relayOptions = CopyOptions.Between(new("A", "/sdcard/source"), new("B", "/sdcard/relay"), ["excluded"], ["excluded/keep"], true);
+        var relayed = await multiEngine.CopyAsync(relayOptions, Resolve, new Progress<CopyProgress>(), _ => { }, CancellationToken.None);
+        Check(relayed.Copied == 4 && relayed.Failed == 0, "Copier Android A vers Android B par flux");
+        Check(File.ReadAllBytes(Path.Combine(phoneB, "relay", "été.bin")).SequenceEqual(payload), "Le relais conserve les octets binaires et les noms Unicode");
+        Check(File.Exists(Path.Combine(phoneB, "relay", ".hidden", ".nomedia")) && File.Exists(Path.Combine(phoneB, "relay", "bad:name.txt")),
+            "Android vers Android conserve fichiers cachés et noms Android sans contrainte Windows");
+        Check(!File.Exists(Path.Combine(phoneB, "relay", "excluded", "drop.txt")) && File.Exists(Path.Combine(phoneB, "relay", "excluded", "keep", "keep.txt")) &&
+            !Directory.Exists(Path.Combine(phoneB, "relay", "empty")), "Le relais applique exclusions, exceptions et absence de dossiers vides");
+        string[][] Traces() => Directory.EnumerateFiles(tracing).Select(p => System.Text.Json.JsonSerializer.Deserialize<string[]>(File.ReadAllText(p))!).ToArray();
+        var relayTrace = Traces();
+        Check(relayTrace.Any(a => a[1] == "A" && a[^1].StartsWith("cat '", StringComparison.Ordinal)) &&
+            relayTrace.Any(a => a[1] == "B" && a[^1].StartsWith("cat >", StringComparison.Ordinal) && !a.Contains("-n")),
+            "Relais : deux appareils explicites, stdin activé sur le receveur");
+        var relayedAgain = await multiEngine.CopyAsync(relayOptions, Resolve, new Progress<CopyProgress>(), _ => { }, CancellationToken.None);
+        Check(relayedAgain.Copied == 0 && relayedAgain.Skipped == 4, "La reprise Android A vers B ne retransfère pas les fichiers validés");
+        string relayQueue;
+        using (var queue = new TransferQueue(relayOptions, multiQueues)) relayQueue = queue.FilePath;
+        using (var queue = new TransferQueue(relayOptions with { DestinationSerial = "C" }, multiQueues))
+            Check(queue.FilePath != relayQueue && !queue.Entries.Any(), "La file Android vers Android est isolée par appareil destination");
+        foreach (var file in Directory.EnumerateFiles(tracing)) File.Delete(file);
+        var localAndroid = CopyOptions.Between(new("A", "/sdcard/source"), new("A", "/sdcard/local-copy"), ["excluded"], ["excluded/keep"], true);
+        var copiedOnDevice = await multiEngine.CopyAsync(localAndroid, Resolve, new Progress<CopyProgress>(), _ => { }, CancellationToken.None);
+        Check(copiedOnDevice.Copied == 4 && copiedOnDevice.Failed == 0 && File.ReadAllBytes(Path.Combine(phoneA, "local-copy", "été.bin")).SequenceEqual(payload),
+            "Copier localement entre dossiers distincts sur le même Android");
+        var cpTrace = Traces();
+        Check(cpTrace.Any(a => a[^1].StartsWith("cp -n ", StringComparison.Ordinal)) && !cpTrace.Any(a => a[2] == "push" || a[^1].StartsWith("cat ", StringComparison.Ordinal)),
+            "Même Android : cp local uniquement, aucun pull, push ni relais du contenu");
+        foreach (var invalid in new[] { "/storage/emulated/0/source", "/storage/emulated/0/source/inside", "/storage/emulated/0" })
+        {
+            var aliasRejected = false;
+            try { await multiEngine.CopyAsync(localAndroid with { Destination = invalid }, Resolve, new Progress<CopyProgress>(), _ => { }, CancellationToken.None); }
+            catch (IOException ex) { aliasRejected = ex.Message.Contains("imbriquées", StringComparison.Ordinal); }
+            Check(aliasRejected, "Résoudre les alias /sdcard et /storage/emulated/0 avant de refuser : " + invalid);
+        }
+        Check(!Directory.Exists(Path.Combine(phoneA, "source", "inside")), "Un refus de copie récursive ne crée pas la destination");
+
+        var caseDistinct = await multiEngine.CopyAsync(localAndroid with { Destination = "/sdcard/SOURCE" }, Resolve,
+            new Progress<CopyProgress>(), _ => { }, CancellationToken.None);
+        Check(caseDistinct.Copied == 4 && caseDistinct.Failed == 0, "Même Android : deux dossiers différant par la casse restent distincts");
+        var rootAlias = Path.Combine(root, "phone-root-alias");
+        Directory.CreateSymbolicLink(rootAlias, phoneA);
+        Environment.SetEnvironmentVariable("ANDROCP_FAKE_ROOT", rootAlias);
+        var aliasListing = await fake.ListDirectoryAsync("root-alias", "/sdcard", CancellationToken.None);
+        Check(aliasListing.Any(e => e.Name == "source" && e.IsDirectory), "Parcourir /sdcard quand la racine est un lien Android");
+        Environment.SetEnvironmentVariable("ANDROCP_FAKE_ROOT", null);
+
+        foreach (var mode in new[] { "cp", "relay" })
+        {
+            var srcRel = "pause-source-" + mode;
+            var dstRel = "pause-target-" + mode;
+            var dstRoot = mode == "cp" ? phoneA : phoneB;
+            Directory.CreateDirectory(Path.Combine(phoneA, srcRel));
+            File.WriteAllText(Path.Combine(phoneA, srcRel, "a.txt"), "completed");
+            var job = CopyOptions.Between(new("A", "/sdcard/" + srcRel), new(mode == "cp" ? "A" : "B", "/sdcard/" + dstRel), [], [], true);
+            await multiEngine.CopyAsync(job, Resolve, new Progress<CopyProgress>(), _ => { }, CancellationToken.None);
+            File.WriteAllText(Path.Combine(phoneA, srcRel, "b.txt"), "restart me from zero");
+            var signals = Path.Combine(root, "signals-" + mode); Directory.CreateDirectory(signals);
+            using var session = new CopySession(job, multiQueues);
+            var token = session.BeginRun().Token;
+            var started = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var watcher = new FileSystemWatcher(signals);
+            watcher.Created += (_, e) => { if (int.TryParse(e.Name, out var id)) started.TrySetResult(id); };
+            watcher.EnableRaisingEvents = true;
+            var oldTraces = Directory.EnumerateFiles(tracing).ToHashSet();
+            Environment.SetEnvironmentVariable("ANDROCP_FAKE_SLOW_IO", mode == "cp" ? "cp" : "download");
+            Environment.SetEnvironmentVariable("ANDROCP_FAKE_SIGNAL_DIRECTORY", signals);
+            var task = multiEngine.CopyAsync(session.Options, Resolve, new Progress<CopyProgress>(), _ => { }, token);
+            try { await started.Task.WaitAsync(TimeSpan.FromSeconds(20)); }
+            catch { session.Cancel(); try { await task; } catch (Exception) { } throw; }
+            session.RequestPause();
+            try { await task; } catch (Exception) when (token.IsCancellationRequested) { }
+            session.ConfirmPaused(); session.EndRun();
+            Check(session.State == CopySessionState.Paused && !File.Exists(Path.Combine(dstRoot, dstRel, "b.txt")), mode + " : pause au milieu d’un transfert sans fichier final partiel");
+            var allStopped = true;
+            foreach (var traceFile in Directory.EnumerateFiles(tracing).Where(p => !oldTraces.Contains(p)))
+            {
+                var id = int.Parse(Path.GetFileName(traceFile).Split('-')[0]);
+                try { using var p = Process.GetProcessById(id); allStopped &= p.HasExited; } catch (ArgumentException) { }
+            }
+            Check(allStopped, mode + " : tous les processus des deux côtés sont arrêtés avant déconnexion");
+            Environment.SetEnvironmentVariable("ANDROCP_FAKE_SLOW_IO", null);
+            Environment.SetEnvironmentVariable("ANDROCP_FAKE_SIGNAL_DIRECTORY", null);
+            var continuedRun = session.BeginRun();
+            var done = await multiEngine.CopyAsync(session.Options, Resolve, new Progress<CopyProgress>(), _ => { }, continuedRun.Token);
+            session.Complete(); session.EndRun();
+            Check(done.Copied == 1 && done.Skipped == 1 && done.Failed == 0 && File.ReadAllText(Path.Combine(dstRoot, dstRel, "b.txt")) == "restart me from zero",
+                mode + " : Continuer rejoue seulement le fichier interrompu");
+        }
+        Environment.SetEnvironmentVariable("ANDROCP_FAKE_ROOTS", null);
+        Environment.SetEnvironmentVariable("ANDROCP_FAKE_TRACE", null);
     }
+
+    var pcSource = Path.Combine(root, "pc-source");
+    var pcTarget = Path.Combine(root, "pc-target");
+    Directory.CreateDirectory(pcSource); Directory.CreateDirectory(pcTarget);
+    File.WriteAllText(Path.Combine(pcSource, "file.txt"), "local copy without ADB");
+    var localOptions = CopyOptions.Between(new(null, pcSource), new(null, pcTarget), [], []);
+    var native = new CopyEngine(new AdbClient("/nonexistent-adb"), Path.Combine(root, "pc-queues"));
+    Task<NameDecision> RenameNative(NameProblem problem) => Task.FromResult(new NameDecision(DecisionKind.Rename, problem.Suggested));
+    var pcCopied = await native.CopyAsync(localOptions, RenameNative, new Progress<CopyProgress>(), _ => { }, CancellationToken.None);
+    var pcResumed = await native.CopyAsync(localOptions, RenameNative, new Progress<CopyProgress>(), _ => { }, CancellationToken.None);
+    Check(pcCopied.Copied == 1 && pcResumed.Skipped == 1 && File.ReadAllText(Path.Combine(pcTarget, "file.txt")) == "local copy without ADB", "PC vers PC et reprise sans ADB installé");
+    var nestedRejected = false;
+    try { await native.CopyAsync(localOptions with { Destination = pcSource }, RenameNative, new Progress<CopyProgress>(), _ => { }, CancellationToken.None); }
+    catch (IOException) { nestedRejected = true; }
+    Check(nestedRejected, "PC vers PC refuse aussi la source identique à la destination");
 }
 finally { Directory.Delete(root, true); }
 Console.WriteLine($"\n{count} tests réussis.");
