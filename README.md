@@ -1,5 +1,9 @@
 # Andro CP
 
+**Android cloning program**
+
+Auteur : **Michel Ekanga**, alias **King Saozer** — saozerkinghacker@gmail.com
+
 Copieur USB Android ↔ Windows, développé en C# / .NET 10 avec Avalonia. L’interface fonctionne aussi sous Linux pour le développement.
 
 ## Fonctionnalités communes
@@ -73,6 +77,10 @@ Sur Windows, le packaging ARFT exige aussi Python/pip sur la machine de compilat
 Il embarque Python **3.14.10** au format Windows embeddable, ARFT **0.6.0**, `tqdm` et `colorama`. Les roues Python sont épinglées et leurs SHA-256 vérifiés via `--require-hashes`. Les notices Python et les licences des paquets restent dans l’artefact. Aucun Python ni pip n’est requis sur le PC cible. Le build teste l’import et la compatibilité du pont avec le vrai Python portable avant de livrer l’artefact.
 
 Dans cette variante, la case **Reprise persistante** est activée par défaut. Pour reprendre, sélectionner le même téléphone, le même sens, les mêmes chemins et les mêmes filtres, puis cliquer à nouveau sur **Préparer et copier**. Les décisions de renommage sont conservées. Décocher cette option utilise la copie classique.
+
+**Espace limité, Android → PC :** cocher aussi **Poursuivre avec l’espace disponible**. Ce mode ne bloque pas sur la taille totale restante : il valide les fichiers déjà terminés sans les recopier, puis contrôle l’espace avant chaque nouveau fichier. Il s’arrête proprement si le prochain fichier ne tient pas, en conservant son état `pending` pour la prochaine reprise. Il faut au minimum la taille entière de ce fichier plus **8 Mio de marge** ; la reprise d’un fichier interrompu se fait depuis zéro. Après avoir libéré de l’espace, relancer avec les mêmes paramètres. Sans cette option, le contrôle initial exige que tous les fichiers restants tiennent sur le disque. Les temporaires appartenant à l’entrée de reprise sont nettoyés avant son contrôle par fichier.
+
+Les fichiers déjà terminés ne nécessitent pas une seconde copie. Les déplacer ou les supprimer de la destination les rend toutefois manquants : une nouvelle reprise tentera de les recopier. Ne pas effacer la file pour contourner l’espace insuffisant. Les fichiers provenant d’une ancienne copie sans cette file restent des collisions à traiter, pas des fichiers silencieusement adoptés comme terminés.
 
 - **Android → PC** : le pont `python/bridge.py` utilise la primitive `pull_one_file` d’ARFT pour transférer et vérifier le fichier dans un staging dédié. Le moteur C# garde le contrôle des exclusions, des noms et de la validation finale sans écrasement. La CLI ARFT complète n’est volontairement pas appelée, car elle peut remplacer les fichiers finaux. La reprise est gérée par notre file durable, pas par les fichiers `.arft-*` de la CLI.
 - **PC → Android** : chaque fichier commence en `queued`. Au redémarrage de la copie, les `pending` deviennent `retry`. Avant un transfert, `queued/retry` passe en `pending` et cet état est synchronisé sur disque. Après vérification et validation du fichier final, il devient `completed`. En cas d’échec, il reste `pending` pour une prochaine relance.

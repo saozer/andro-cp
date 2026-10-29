@@ -7,6 +7,9 @@
     <Grid ColumnDefinitions="*,Auto">
       <StackPanel Spacing="4">
         <TextBlock Text="ANDRO CP" FontSize="30" FontWeight="Bold" Foreground="#7DD3FC" />
+        <TextBlock Text="Android cloning program" FontSize="14" Foreground="#7DD3FC" />
+        <TextBlock Text="Auteur : Michel Ekanga · King Saozer" FontSize="12" Foreground="#A8B3C7" TextWrapping="Wrap" />
+        <TextBlock Text="saozerkinghacker@gmail.com" FontSize="12" Foreground="#A8B3C7" TextWrapping="Wrap" />
         <TextBlock Text="Vos fichiers, dans les deux sens. Sans toucher à la source." Foreground="#A8B3C7" />
       </StackPanel>
       <Border Grid.Column="1" Background="#203446" CornerRadius="16" Padding="14,8" VerticalAlignment="Center">
@@ -24,6 +27,10 @@
           <TextBlock x:Name="VariantStatus" Foreground="#7DD3FC" TextWrapping="Wrap" />
           <CheckBox x:Name="ResumeOption" IsVisible="False" IsChecked="True"
                     Content="Reprise persistante : ARFT Android → PC / file d’attente PC → Android" />
+          <CheckBox x:Name="PartialSpaceOption" IsVisible="False" IsChecked="False"
+                    IsEnabled="{Binding #ResumeOption.IsChecked}"
+                    Content="Poursuivre avec l’espace disponible (Android → PC)"
+                    ToolTip.Tip="Copier fichier par fichier puis s’arrêter proprement si le suivant ne tient pas. Les fichiers terminés sont conservés. Marge de sécurité : 8 Mio." />
           <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
             <ComboBox x:Name="Devices" HorizontalAlignment="Stretch" PlaceholderText="Choisir un téléphone Android" />
             <Button Grid.Column="1" x:Name="RefreshButton" Content="Actualiser" Click="RefreshClick" />

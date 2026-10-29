@@ -4,8 +4,12 @@ using System.Security.Cryptography;
 
 namespace AndroCp.Core;
 
-public sealed class CopyEngine(AdbClient adb, string? queueDirectory = null)
+public sealed class CopyEngine(AdbClient adb, string? queueDirectory = null, Func<string, long>? availableSpace = null)
 {
+    public const long SpaceHeadroom = 8 * 1024 * 1024;
+    private sealed class CopySpaceException(string message) : IOException(message);
+    private long? AvailableSpace(string path) => availableSpace is not null ? availableSpace(path) :
+        OperatingSystem.IsWindows() ? new DriveInfo(Path.GetPathRoot(path)!).AvailableFreeSpace : null;
     public static List<SourceFile> LocalInventory(string root, CopyRules rules, CancellationToken ct)
     {
         var files = new List<SourceFile>();
@@ -39,6 +43,8 @@ public sealed class CopyEngine(AdbClient adb, string? queueDirectory = null)
         IProgress<CopyProgress> progress, Action<string> log, CancellationToken ct)
     {
         var download = options.Direction == CopyDirection.AndroidToComputer;
+        if (options.AllowPartialSpace && (!options.EnableResume || !download))
+            throw new ArgumentException("Le mode espace disponible exige une reprise Android → PC.");
         var androidRoot = AdbClient.AndroidPath(download ? options.Source : options.Destination);
         var localRoot = Path.GetFullPath(download ? options.Destination : options.Source);
         if (download && !Directory.Exists(localRoot)) throw new IOException("Choisis un dossier de destination existant.");
@@ -199,7 +205,7 @@ public sealed class CopyEngine(AdbClient adb, string? queueDirectory = null)
             }
         }
         log($"Copie de {plan.Count} fichiers. {skipped} ignorés.");
-        if (download && OperatingSystem.IsWindows())
+        if (download && !options.AllowPartialSpace && AvailableSpace(localRoot) is { } freeSpace)
         {
             long required = 0;
             foreach (var (file, destination) in plan)
@@ -210,11 +216,13 @@ public sealed class CopyEngine(AdbClient adb, string? queueDirectory = null)
                     File.Exists(target) && new FileInfo(target).Length == file.Size;
                 if (!reusable) required += file.Size;
             }
-            if (new DriveInfo(Path.GetPathRoot(localRoot)!).AvailableFreeSpace < required)
-                throw new IOException("Espace disque insuffisant pour les fichiers restant à transférer.");
+            if (required > 0 && freeSpace < required + SpaceHeadroom)
+                throw new IOException("Espace disque insuffisant pour tous les fichiers restants. Dans la variante ARFT, activez « Poursuivre avec l’espace disponible » pour avancer fichier par fichier.");
         }
+        if (options.AllowPartialSpace) log("Mode espace disponible : contrôle avant chaque fichier, arrêt propre si le suivant ne tient pas. Marge : 8 Mio.");
         var copied = 0;
         var failed = 0;
+        var pausedForSpace = false;
         long bytes = 0;
         using var arft = options.UseArft && download ? new ArftClient(adb.Executable, options.Serial, log, ct) : null;
         foreach (var (file, destination) in plan)
@@ -253,6 +261,13 @@ public sealed class CopyEngine(AdbClient adb, string? queueDirectory = null)
                 bytes += file.Size;
                 await Record(new { type = "copied", source = file.RelativePath, destination, bytes = file.Size });
             }
+            catch (CopySpaceException ex)
+            {
+                pausedForSpace = true;
+                log("PAUSE : " + ex.Message + " Les fichiers terminés sont conservés ; libérez de l’espace puis relancez avec les mêmes paramètres.");
+                await Record(new { type = "paused_space", source = file.RelativePath, reason = ex.Message });
+                break;
+            }
             catch (Exception ex) when (ex is not OperationCanceledException && !ct.IsCancellationRequested)
             {
                 failed++;
@@ -260,9 +275,9 @@ public sealed class CopyEngine(AdbClient adb, string? queueDirectory = null)
                 await Record(new { type = "error", source = file.RelativePath, error = ex.Message });
             }
         }
-        progress.Report(new(files.Count, files.Count, bytes, total, "Terminé"));
-        await Record(new { type = "end", copied, skipped, failed, time = DateTimeOffset.Now });
-        return new(copied, skipped, failed, journalPath);
+        progress.Report(new(copied + skipped + failed, files.Count, bytes, total, pausedForSpace ? "Pause : espace insuffisant" : "Terminé"));
+        await Record(new { type = "end", copied, skipped, failed, pausedForSpace, time = DateTimeOffset.Now });
+        return new(copied, skipped, failed, journalPath, pausedForSpace);
     }
 
     private static string Join(string parent, string child) => parent.Length == 0 ? child : parent + "/" + child;
@@ -307,6 +322,10 @@ public sealed class CopyEngine(AdbClient adb, string? queueDirectory = null)
                 if (File.Exists(temporary)) File.Delete(temporary);
                 if (File.Exists(temporary + ".part")) File.Delete(temporary + ".part");
             }
+            // Completed files are checked before reaching this point. Reclaim only
+            // this queue entry's own stale staging files before checking free space.
+            if (AvailableSpace(directory) is { } free && free < expected + SpaceHeadroom)
+                throw new CopySpaceException($"Le fichier {Path.GetFileName(target)} exige {expected / 1048576.0:F1} Mio + 8 Mio de marge ; {free / 1048576.0:F1} Mio disponibles.");
             if (arft is null) await adb.DownloadAsync(serial, remote, temporary, ct);
             else await arft.DownloadAsync(remote, temporary, expected, ct);
             if (new FileInfo(temporary).Length != expected) throw new IOException("Taille différente de l’inventaire. La source a peut-être changé.");

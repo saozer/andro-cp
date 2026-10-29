@@ -259,6 +259,45 @@ try
         var pullAgain = await resumeEngine.CopyAsync(pullOptions, Resolve, new Progress<CopyProgress>(), _ => { }, CancellationToken.None);
         Check(pullFirst.Copied == 1 && pullAgain.Skipped == 1 && decisions.Count == decisionCount, "Reprise descendante conserve les décisions de renommage");
         Check(File.ReadAllText(Path.Combine(pullTarget, "one.txt")) == "foreign-file", "Reprise descendante ne remplace pas un fichier étranger");
+
+        var spaceSource = Path.Combine(root, "space-source");
+        var spaceTarget = Path.Combine(root, "space-target");
+        var spaceQueues = Path.Combine(root, "space-queues");
+        Directory.CreateDirectory(spaceSource);
+        Directory.CreateDirectory(spaceTarget);
+        File.WriteAllText(Path.Combine(spaceSource, "a.txt"), "aaaa");
+        File.WriteAllText(Path.Combine(spaceSource, "b.txt"), "bbbb");
+        Environment.SetEnvironmentVariable("ANDROCP_FAKE_ROOT", spaceSource);
+        var spaceOptions = new CopyOptions(CopyDirection.AndroidToComputer, "space-device", "/sdcard", spaceTarget, [], [], true);
+        var blocked = false;
+        try
+        {
+            await new CopyEngine(fake, spaceQueues, _ => CopyEngine.SpaceHeadroom + 4).CopyAsync(
+                spaceOptions, Resolve, new Progress<CopyProgress>(), _ => { }, CancellationToken.None);
+        }
+        catch (IOException ex) { blocked = ex.Message.Contains("Poursuivre", StringComparison.Ordinal); }
+        Check(blocked && !Directory.EnumerateFiles(spaceTarget).Any(), "Mode strict : expliquer le refus si tout le volume restant ne tient pas");
+        var spaceChecks = 0;
+        var partial = await new CopyEngine(fake, spaceQueues, _ => ++spaceChecks == 1 ? CopyEngine.SpaceHeadroom + 4 : CopyEngine.SpaceHeadroom).CopyAsync(
+            spaceOptions with { AllowPartialSpace = true }, Resolve, new Progress<CopyProgress>(), _ => { }, CancellationToken.None);
+        Check(partial.Copied == 1 && partial.PausedForSpace && partial.Failed == 0, "Mode espace disponible : avancer puis se mettre en pause sans faux succès");
+        Check(Directory.EnumerateFiles(spaceTarget).Count() == 1 && !Directory.EnumerateFiles(spaceTarget, "*.part").Any(),
+            "Pause espace : fichier terminé conservé, aucun temporaire partiel");
+        using (var queue = new TransferQueue(spaceOptions, spaceQueues))
+            Check(queue.Entries.Count(x => x.Status == "completed") == 1 && queue.Entries.Count(x => x.Status == "retry") == 1,
+                "Pause espace : état pending durable et récupérable en retry");
+        var stillFull = await new CopyEngine(fake, spaceQueues, _ => 0).CopyAsync(
+            spaceOptions with { AllowPartialSpace = true }, Resolve, new Progress<CopyProgress>(), _ => { }, CancellationToken.None);
+        Check(stillFull.Skipped == 1 && stillFull.Copied == 0 && stillFull.PausedForSpace,
+            "Valider un fichier déjà terminé même sans espace libre");
+        var afterFreeing = await new CopyEngine(fake, spaceQueues, _ => CopyEngine.SpaceHeadroom + 4).CopyAsync(
+            spaceOptions, Resolve, new Progress<CopyProgress>(), _ => { }, CancellationToken.None);
+        Check(afterFreeing.Copied == 1 && afterFreeing.Skipped == 1 && !afterFreeing.PausedForSpace,
+            "Après libération : seule la taille restante est nécessaire, pas une seconde copie complète");
+        var allComplete = await new CopyEngine(fake, spaceQueues, _ => 0).CopyAsync(
+            spaceOptions, Resolve, new Progress<CopyProgress>(), _ => { }, CancellationToken.None);
+        Check(allComplete.Copied == 0 && allComplete.Skipped == 2 && !allComplete.PausedForSpace,
+            "Reprise entièrement terminée sans espace supplémentaire pour les données");
         Environment.SetEnvironmentVariable("ANDROCP_FAKE_ROOT", null);
     }
 }

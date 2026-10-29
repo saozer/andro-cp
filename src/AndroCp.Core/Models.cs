@@ -7,10 +7,11 @@ public record AndroidDevice(string Serial, string State, string Model)
 
 public enum CopyDirection { AndroidToComputer, ComputerToAndroid }
 public record CopyOptions(CopyDirection Direction, string Serial, string Source, string Destination,
-    IReadOnlyList<string> Exclusions, IReadOnlyList<string> Exceptions, bool EnableResume = false, bool UseArft = false);
+    IReadOnlyList<string> Exclusions, IReadOnlyList<string> Exceptions, bool EnableResume = false, bool UseArft = false,
+    bool AllowPartialSpace = false);
 public record SourceFile(string RelativePath, long Size, long? ModifiedTicks = null);
 public record CopyProgress(int Completed, int Total, long Bytes, long TotalBytes, string Current);
-public record CopyResult(int Copied, int Skipped, int Failed, string Journal);
+public record CopyResult(int Copied, int Skipped, int Failed, string Journal, bool PausedForSpace = false);
 public enum DecisionKind { Rename, Skip, Cancel }
 public record NameProblem(string Original, string Reason, string Suggested, bool IsDirectory);
 public record NameDecision(DecisionKind Kind, string Name = "", bool ApplyToSimilar = false);

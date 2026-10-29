@@ -16,6 +16,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         ResumeOption.IsVisible = ArftClient.IsBundled;
+        PartialSpaceOption.IsVisible = ArftClient.IsBundled && Download;
         VariantStatus.Text = ArftClient.IsBundled ? "ARFT — reprise disponible. Relancez avec les mêmes chemins pour reprendre."
             : adb.Executable == "adb" ? "Tiny — ADB du système, sans reprise automatique."
             : "ADB intégré — sans reprise automatique.";
@@ -70,6 +71,7 @@ public partial class MainWindow : Window
         DestinationLabel.Text = Download ? "Destination locale" : "Destination Android";
         SourceBrowse.IsVisible = !Download;
         DestinationBrowse.IsVisible = Download;
+        PartialSpaceOption.IsVisible = ArftClient.IsBundled && Download;
         (SourcePath.Text, DestinationPath.Text) = (DestinationPath.Text, SourcePath.Text);
     }
     private async Task BrowseAsync(TextBox input)
@@ -95,7 +97,8 @@ public partial class MainWindow : Window
         var options = new CopyOptions(Download ? CopyDirection.AndroidToComputer : CopyDirection.ComputerToAndroid,
             device.Serial, SourcePath.Text, DestinationPath.Text, Lines(Exclusions.Text), Lines(Exceptions.Text),
             EnableResume: ArftClient.IsBundled && ResumeOption.IsChecked == true,
-            UseArft: Download && ArftClient.IsBundled && ResumeOption.IsChecked == true);
+            UseArft: Download && ArftClient.IsBundled && ResumeOption.IsChecked == true,
+            AllowPartialSpace: Download && ArftClient.IsBundled && ResumeOption.IsChecked == true && PartialSpaceOption.IsChecked == true);
         Configuration.IsEnabled = false;
         CopyButton.IsEnabled = false;
         CancelButton.IsEnabled = true;
@@ -108,7 +111,7 @@ public partial class MainWindow : Window
         {
             TransferProgress.IsIndeterminate = false;
             TransferProgress.Value = p.Total == 0 ? 100 : 100.0 * p.Completed / p.Total;
-            if (p.Current == "Terminé") { CurrentFile.Text = "Terminé"; return; }
+            if (p.Current is "Terminé" or "Pause : espace insuffisant") { CurrentFile.Text = p.Current; return; }
             Status.Text = $"{p.Completed}/{p.Total} fichiers traités · {p.Bytes / 1073741824.0:F2}/{p.TotalBytes / 1073741824.0:F2} Gio · {p.Bytes / 1048576.0 / Math.Max(1, watch.Elapsed.TotalSeconds):F1} Mio/s (moyenne)";
             CurrentFile.Text = p.Current;
         });
@@ -131,7 +134,9 @@ public partial class MainWindow : Window
         try
         {
             var result = await Task.Run(() => new CopyEngine(adb).CopyAsync(options, Resolve, progress, AppendLog, token), token);
-            Status.Text = $"Copie terminée : {result.Copied} copiés, {result.Skipped} ignorés, {result.Failed} en erreur.";
+            Status.Text = result.PausedForSpace
+                ? $"Copie en pause faute d’espace : {result.Copied} copiés, {result.Skipped} ignorés. Libérez de l’espace puis relancez les mêmes chemins pour reprendre."
+                : $"Copie terminée : {result.Copied} copiés, {result.Skipped} ignorés, {result.Failed} en erreur.";
             AppendLog(Status.Text);
             AppendLog("Journal : " + result.Journal);
         }
