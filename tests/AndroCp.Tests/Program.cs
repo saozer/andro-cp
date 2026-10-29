@@ -33,6 +33,13 @@ if (args.Length == 3 && args[0] == "--arft-smoke")
     return;
 }
 
+if (args.Length > 0 && args[0] == "devices")
+{
+    Console.WriteLine("List of devices attached");
+    Console.Write(Environment.GetEnvironmentVariable("ANDROCP_FAKE_DEVICE_LIST") ?? "");
+    return;
+}
+
 // A subprocess fixture exercises real byte transfers without any connected phone.
 if (args.Length > 0 && args[0] == "-s" && !OperatingSystem.IsWindows())
 {
@@ -49,6 +56,20 @@ if (args.Length > 0 && args[0] == "-s" && !OperatingSystem.IsWindows())
         return;
     }
     var command = args[^1].Replace("/sdcard", fakeRoot, StringComparison.Ordinal);
+    if (command.Contains("androcp-access-ok", StringComparison.Ordinal))
+    {
+        if (Environment.GetEnvironmentVariable("ANDROCP_FAKE_FAIL_PROBE") == "1")
+        {
+            Console.Error.WriteLine("Accès shell refusé simulé");
+            Environment.ExitCode = 23;
+            return;
+        }
+        if (Environment.GetEnvironmentVariable("ANDROCP_FAKE_BAD_PROBE") == "1")
+        {
+            Console.WriteLine("Réponse inattendue");
+            return;
+        }
+    }
     var info = new ProcessStartInfo("/bin/sh") { UseShellExecute = false };
     info.ArgumentList.Add("-c");
     info.ArgumentList.Add(command);
@@ -98,6 +119,28 @@ foreach (var path in new[] { "/data/data", "/sdcard/../data", "/sdcard/./x", "re
     Check(rejected, "Chemin Android refusé : " + path);
 }
 Check(AdbClient.AndroidPath("/sdcard/DCIM/") == "/sdcard/DCIM", "Normaliser chemin Android");
+Check(!DeviceConnection.NoSelection(false).CanCopy && !DeviceConnection.NoSelection(true).CanCopy && !DeviceConnection.Checking.CanCopy,
+    "Pas de copie sans sélection ou pendant la vérification ADB");
+var timing = new CopyTimeEstimator();
+Check(timing.EstimateRemaining(TimeSpan.FromSeconds(1)) is null, "Pas d’estimation avant les premiers transferts");
+timing.Update(new(0, 3, 0, 300, "préparation", 0), TimeSpan.FromSeconds(5));
+timing.Update(new(1, 3, 100, 300, "suite", 100), TimeSpan.FromSeconds(15));
+Check(timing.EstimateRemaining(TimeSpan.FromSeconds(15)) == TimeSpan.FromSeconds(20), "Estimer le temps restant à partir des fichiers réellement transférés");
+Check(timing.EstimateRemaining(TimeSpan.FromSeconds(46)) is null, "Ne pas conserver une estimation devenue trop ancienne");
+var resumeTiming = new CopyTimeEstimator();
+resumeTiming.Update(new(1, 5, 200, 500, "réutilisé", 0), TimeSpan.FromSeconds(5));
+Check(resumeTiming.EstimateRemaining(TimeSpan.FromSeconds(5)) is null, "Un fichier réutilisé ne gonfle pas le débit réseau de reprise");
+resumeTiming.Update(new(2, 5, 300, 500, "transféré", 100), TimeSpan.FromSeconds(15));
+Check(resumeTiming.EstimateRemaining(TimeSpan.FromSeconds(15)) == TimeSpan.FromSeconds(20), "La reprise distingue volume déjà présent et volume réellement copié");
+resumeTiming.Update(new(5, 5, 500, 500, "Terminé", 300), TimeSpan.FromSeconds(35));
+Check(resumeTiming.EstimateRemaining(TimeSpan.FromSeconds(35)) == TimeSpan.Zero, "Temps restant nul quand toutes les données sont traitées");
+Check(CopyTimeEstimator.FormatDuration(TimeSpan.FromSeconds(3661)) == "01:01:01", "Afficher les durées en heures, minutes et secondes");
+Check(CopyTimeEstimator.FormatDuration(TimeSpan.FromHours(25)) == "1 j 01:00:00", "Afficher les copies de plus de vingt-quatre heures");
+Check(new CopyProgress(1, 10, 75, 100, "copie").Percentage == 75, "Pourcentage calculé sur le volume plutôt que le nombre de fichiers");
+Check(new CopyProgress(10, 10, 75, 100, "Terminé").Percentage == 75, "Ne pas afficher 100 % si des données n’ont pas été copiées");
+Check(new CopyProgress(1, 2, 0, 0, "copie").Percentage == 50, "Pourcentage par fichiers pour une copie de fichiers vides");
+Check(new CopyProgress(0, 0, 0, 0, "Terminé").Percentage == 100, "Une copie vide terminée affiche 100 %");
+Check(new CopyProgress(1, 1, 110, 100, "copie").Percentage == 100, "Borner le pourcentage à 100 %");
 var temporaryRoot = OperatingSystem.IsWindows() ? Path.GetTempPath() : "/tmp/opencode";
 var root = Path.Combine(temporaryRoot, "androcp-tests-" + Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(root);
@@ -156,6 +199,35 @@ try
 
         var fake = new AdbClient(Environment.ProcessPath!);
         Environment.SetEnvironmentVariable("ANDROCP_FAKE_ROOT", root);
+        Environment.SetEnvironmentVariable("ANDROCP_FAKE_DEVICE_LIST", "fake device model:My_phone\nother unauthorized\n");
+        var connected = await fake.CheckConnectionAsync("fake", CancellationToken.None);
+        Check(connected.CanCopy && connected.State == DeviceConnectionState.Ready && connected.Message.Contains("My phone", StringComparison.Ordinal),
+            "Téléphone sélectionné autorisé : accès shell confirmé et message prêt à copier");
+        Check(!connected.Message.Contains("unauthorized", StringComparison.Ordinal) && !connected.Message.Contains("offline", StringComparison.Ordinal),
+            "Ne pas afficher les avertissements des autres téléphones pour celui qui est accessible");
+        Environment.SetEnvironmentVariable("ANDROCP_FAKE_DEVICE_LIST", "fake unauthorized\n");
+        var unauthorized = await fake.CheckConnectionAsync("fake", CancellationToken.None);
+        Check(!unauthorized.CanCopy && unauthorized.State == DeviceConnectionState.Unauthorized,
+            "Relire l’état réel unauthorized plutôt que la sélection périmée");
+        Environment.SetEnvironmentVariable("ANDROCP_FAKE_DEVICE_LIST", "fake offline\n");
+        var offline = await fake.CheckConnectionAsync("fake", CancellationToken.None);
+        Check(!offline.CanCopy && offline.State == DeviceConnectionState.Offline, "Distinguer un téléphone offline");
+        Environment.SetEnvironmentVariable("ANDROCP_FAKE_DEVICE_LIST", "other device\n");
+        var missing = await fake.CheckConnectionAsync("fake", CancellationToken.None);
+        Check(!missing.CanCopy && missing.State == DeviceConnectionState.Missing, "Détecter la déconnexion du téléphone sélectionné");
+        Environment.SetEnvironmentVariable("ANDROCP_FAKE_DEVICE_LIST", "fake recovery\n");
+        var recovery = await fake.CheckConnectionAsync("fake", CancellationToken.None);
+        Check(!recovery.CanCopy && recovery.State == DeviceConnectionState.Failed, "Ne pas autoriser la copie pour un état ADB non pris en charge");
+        Environment.SetEnvironmentVariable("ANDROCP_FAKE_DEVICE_LIST", "fake device model:My_phone\n");
+        Environment.SetEnvironmentVariable("ANDROCP_FAKE_FAIL_PROBE", "1");
+        var denied = await fake.CheckConnectionAsync("fake", CancellationToken.None);
+        Check(!denied.CanCopy && denied.State == DeviceConnectionState.Failed, "État device seul insuffisant : refuser si le shell ADB échoue");
+        Environment.SetEnvironmentVariable("ANDROCP_FAKE_FAIL_PROBE", null);
+        Environment.SetEnvironmentVariable("ANDROCP_FAKE_BAD_PROBE", "1");
+        Check(!(await fake.CheckConnectionAsync("fake", CancellationToken.None)).CanCopy, "Refuser une réponse de sonde ADB inattendue");
+        Environment.SetEnvironmentVariable("ANDROCP_FAKE_BAD_PROBE", null);
+        Check((await fake.CheckConnectionAsync("fake", CancellationToken.None)).CanCopy, "Reconnaître le rétablissement de l’accès ADB");
+        Environment.SetEnvironmentVariable("ANDROCP_FAKE_DEVICE_LIST", null);
         var listing = await fake.ListDirectoryAsync("fake", "/sdcard", CancellationToken.None);
         Check(listing.Any(x => x.Name == "Android" && x.IsDirectory) && listing.Any(x => x.Name == ".hidden" && !x.IsDirectory),
             "Lister un dossier Android, y compris les fichiers cachés");

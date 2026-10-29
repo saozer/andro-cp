@@ -1,27 +1,37 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="AndroCp.App.MainWindow"
-        Title="Andro CP — Copieur Android" Width="1040" Height="880" MinWidth="780" MinHeight="680"
+        Title="Andro CP — Copieur Android" Icon="/Assets/andro-cp.ico" Width="1040" Height="880" MinWidth="780" MinHeight="680"
         Background="#10151F">
   <Grid RowDefinitions="Auto,*,Auto" Margin="28" RowSpacing="18">
-    <Grid ColumnDefinitions="*,Auto">
-      <StackPanel Spacing="4">
+    <Grid ColumnDefinitions="Auto,*,Auto">
+      <Image Source="/Assets/andro-cp.png" Width="72" Height="72" Stretch="Uniform"
+             Margin="0,0,16,0" VerticalAlignment="Center" ToolTip.Tip="Andro CP — Android cloning program" />
+      <StackPanel Grid.Column="1" Spacing="4">
         <TextBlock Text="ANDRO CP" FontSize="30" FontWeight="Bold" Foreground="#7DD3FC" />
         <TextBlock Text="Android cloning program" FontSize="14" Foreground="#7DD3FC" />
         <TextBlock Text="Auteur : Michel Ekanga · King Saozer" FontSize="12" Foreground="#A8B3C7" TextWrapping="Wrap" />
         <TextBlock Text="saozerkinghacker@gmail.com" FontSize="12" Foreground="#A8B3C7" TextWrapping="Wrap" />
         <TextBlock Text="Vos fichiers, dans les deux sens. Sans toucher à la source." Foreground="#A8B3C7" />
       </StackPanel>
-      <Border Grid.Column="1" Background="#203446" CornerRadius="16" Padding="14,8" VerticalAlignment="Center">
+      <Border Grid.Column="2" Background="#203446" CornerRadius="16" Padding="14,8" VerticalAlignment="Center">
         <TextBlock Text="USB · ADB" Foreground="#7DD3FC" />
       </Border>
     </Grid>
     <ScrollViewer Grid.Row="1">
       <StackPanel Spacing="18">
-        <Border Background="#30291D" BorderBrush="#68502B" BorderThickness="1" CornerRadius="8" Padding="14">
-          <TextBlock TextWrapping="Wrap" Foreground="#F6D99A"
-            Text="À savoir : activez le débogage USB et autorisez cet ordinateur sur le téléphone. Un pilote USB Windows peut être nécessaire. Les données privées et certains dossiers Android sont protégés. Gardez le téléphone connecté et évitez de modifier les fichiers pendant la copie." />
+        <Border x:Name="ConnectionWarning" Background="#30291D" BorderBrush="#68502B" BorderThickness="1" CornerRadius="8" Padding="14">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <TextBlock x:Name="ConnectionWarningText" TextWrapping="Wrap" Foreground="#F6D99A"
+              Text="Recherche des appareils ADB…" />
+            <Button Grid.Column="1" Content="×" Click="DismissWarningClick" VerticalAlignment="Top"
+                    Padding="8,2" FontSize="20" ToolTip.Tip="Fermer cet avertissement" />
+          </Grid>
         </Border>
+        <Expander Header="Informations Android et limites d’accès" IsExpanded="False" HorizontalAlignment="Stretch">
+          <TextBlock TextWrapping="Wrap" Margin="12"
+            Text="Un téléphone connecté et autorisé ne garantit pas l’accès à tous ses dossiers : les données privées et certains répertoires Android sont protégés. Gardez le téléphone branché et évitez de modifier ses fichiers pendant la copie. En cas de problème de connexion, vérifiez le débogage USB, l’autorisation de l’ordinateur et les pilotes USB Windows." />
+        </Expander>
         <StackPanel x:Name="Configuration" Spacing="16">
           <TextBlock Text="01  Connexion" Classes="section" />
           <TextBlock x:Name="VariantStatus" Foreground="#7DD3FC" TextWrapping="Wrap" />
@@ -32,7 +42,7 @@
                     Content="Poursuivre avec l’espace disponible (Android → PC)"
                     ToolTip.Tip="Copier fichier par fichier puis s’arrêter proprement si le suivant ne tient pas. Les fichiers terminés sont conservés. Marge de sécurité : 8 Mio." />
           <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-            <ComboBox x:Name="Devices" HorizontalAlignment="Stretch" PlaceholderText="Choisir un téléphone Android" />
+            <ComboBox x:Name="Devices" HorizontalAlignment="Stretch" PlaceholderText="Choisir un téléphone Android" SelectionChanged="DevicesChanged" />
             <Button Grid.Column="1" x:Name="RefreshButton" Content="Actualiser" Click="RefreshClick" />
           </Grid>
           <TextBlock x:Name="DeviceStatus" Text="Recherche des appareils…" Foreground="#A8B3C7" TextWrapping="Wrap" />
@@ -66,7 +76,14 @@
         <Border Background="#192231" CornerRadius="8" Padding="16">
           <StackPanel Spacing="10">
             <TextBlock x:Name="Status" Text="Prêt à préparer une copie" FontWeight="SemiBold" TextWrapping="Wrap" />
-            <ProgressBar x:Name="TransferProgress" Minimum="0" Maximum="100" Value="0" Height="8" />
+            <Grid Height="26" ToolTip.Tip="Progression en volume, fichiers déjà validés lors d’une reprise inclus.">
+              <ProgressBar x:Name="TransferProgress" Minimum="0" Maximum="100" Value="0" Height="26" />
+              <Border HorizontalAlignment="Center" VerticalAlignment="Center" Background="#B010151F" CornerRadius="4" Padding="7,1" IsHitTestVisible="False">
+                <TextBlock x:Name="TransferPercentageText" Text="0,0 %" FontSize="12" FontWeight="SemiBold" Foreground="White" />
+              </Border>
+            </Grid>
+            <TextBlock x:Name="TimingText" Text="Écoulé : 00:00:00 · Restant estimé : —"
+                       TextWrapping="Wrap" Foreground="#7DD3FC" FontSize="12" />
             <TextBlock x:Name="CurrentFile" Text="Les noms incompatibles seront soumis à votre décision." TextWrapping="Wrap" Foreground="#A8B3C7" FontSize="12" />
             <TextBox x:Name="LogBox" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" Height="130" FontFamily="monospace" FontSize="11" />
           </StackPanel>
@@ -76,7 +93,7 @@
     <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
       <TextBlock Text="Copie uniquement · contrôle des tailles · journal JSONL" Foreground="#A8B3C7" FontSize="12" VerticalAlignment="Center" />
       <Button Grid.Column="1" x:Name="CancelButton" Content="Annuler" IsEnabled="False" Click="CancelClick" />
-      <Button Grid.Column="2" x:Name="CopyButton" Content="Préparer et copier" Background="#0369A1" Foreground="White" Padding="22,12" Click="CopyClick" />
+      <Button Grid.Column="2" x:Name="CopyButton" Content="Préparer et copier" IsEnabled="False" Background="#0369A1" Foreground="White" Padding="22,12" Click="CopyClick" />
     </Grid>
   </Grid>
 </Window>

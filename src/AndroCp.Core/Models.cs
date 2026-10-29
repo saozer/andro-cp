@@ -10,7 +10,12 @@ public record CopyOptions(CopyDirection Direction, string Serial, string Source,
     IReadOnlyList<string> Exclusions, IReadOnlyList<string> Exceptions, bool EnableResume = false, bool UseArft = false,
     bool AllowPartialSpace = false);
 public record SourceFile(string RelativePath, long Size, long? ModifiedTicks = null);
-public record CopyProgress(int Completed, int Total, long Bytes, long TotalBytes, string Current);
+public record CopyProgress(int Completed, int Total, long Bytes, long TotalBytes, string Current, long? TransferredBytes = null)
+{
+    public double Percentage => TotalBytes > 0 ? Math.Clamp(100.0 * Bytes / TotalBytes, 0, 100)
+        : Total > 0 ? Math.Clamp(100.0 * Completed / Total, 0, 100)
+        : Current == "Terminé" ? 100 : 0;
+}
 public record CopyResult(int Copied, int Skipped, int Failed, string Journal, bool PausedForSpace = false);
 public enum DecisionKind { Rename, Skip, Cancel }
 public record NameProblem(string Original, string Reason, string Suggested, bool IsDirectory);

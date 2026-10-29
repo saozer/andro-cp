@@ -205,6 +205,7 @@ public sealed class CopyEngine(AdbClient adb, string? queueDirectory = null, Fun
             }
         }
         log($"Copie de {plan.Count} fichiers. {skipped} ignorés.");
+        total = plan.Sum(x => x.File.Size);
         if (download && !options.AllowPartialSpace && AvailableSpace(localRoot) is { } freeSpace)
         {
             long required = 0;
@@ -224,11 +225,12 @@ public sealed class CopyEngine(AdbClient adb, string? queueDirectory = null, Fun
         var failed = 0;
         var pausedForSpace = false;
         long bytes = 0;
+        long transferredBytes = 0;
         using var arft = options.UseArft && download ? new ArftClient(adb.Executable, options.Serial, log, ct) : null;
         foreach (var (file, destination) in plan)
         {
             ct.ThrowIfCancellationRequested();
-            progress.Report(new(copied + failed + skipped, files.Count, bytes, total, file.RelativePath));
+            progress.Report(new(copied + failed + skipped, files.Count, bytes, total, file.RelativePath, transferredBytes));
             try
             {
                 var entry = queue?.Find(file);
@@ -259,6 +261,7 @@ public sealed class CopyEngine(AdbClient adb, string? queueDirectory = null, Fun
                 if (entry is not null) queue!.Save(entry with { Status = "completed" });
                 copied++;
                 bytes += file.Size;
+                transferredBytes += file.Size;
                 await Record(new { type = "copied", source = file.RelativePath, destination, bytes = file.Size });
             }
             catch (CopySpaceException ex)
@@ -275,7 +278,7 @@ public sealed class CopyEngine(AdbClient adb, string? queueDirectory = null, Fun
                 await Record(new { type = "error", source = file.RelativePath, error = ex.Message });
             }
         }
-        progress.Report(new(copied + skipped + failed, files.Count, bytes, total, pausedForSpace ? "Pause : espace insuffisant" : "Terminé"));
+        progress.Report(new(copied + skipped + failed, files.Count, bytes, total, pausedForSpace ? "Pause : espace insuffisant" : "Terminé", transferredBytes));
         await Record(new { type = "end", copied, skipped, failed, pausedForSpace, time = DateTimeOffset.Now });
         return new(copied, skipped, failed, journalPath, pausedForSpace);
     }

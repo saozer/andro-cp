@@ -42,6 +42,7 @@ public sealed class NameDialog : Window
     }
     public async Task<NameDecision> AskAsync(Window owner)
     {
+        Icon = owner.Icon;
         await ShowDialog<NameDecision?>(owner);
         return result;
     }

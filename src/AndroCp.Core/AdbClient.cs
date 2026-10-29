@@ -64,6 +64,30 @@ public sealed class AdbClient
                 parts.FirstOrDefault(x => x.StartsWith("model:", StringComparison.Ordinal))?[6..].Replace('_', ' ') ?? "Android"))
             .ToArray();
     }
+    public async Task<DeviceConnection> CheckConnectionAsync(string serial, CancellationToken ct)
+    {
+        // Re-read the device state: a ComboBox item may predate an authorization or disconnection.
+        var device = (await DevicesAsync(ct)).FirstOrDefault(x => x.Serial == serial);
+        if (device is null) return new(DeviceConnectionState.Missing, "Le téléphone sélectionné est déconnecté ou n’est plus détecté. Rebranchez-le puis cliquez sur Actualiser.");
+        if (device.State == "unauthorized") return new(DeviceConnectionState.Unauthorized,
+            "Téléphone non autorisé : déverrouillez-le et acceptez l’autorisation de débogage USB.");
+        if (device.State == "offline") return new(DeviceConnectionState.Offline,
+            "Téléphone hors ligne (offline) : reconnectez le câble USB puis cliquez sur Actualiser.");
+        if (device.State != "device") return new(DeviceConnectionState.Failed,
+            $"Téléphone indisponible (état ADB : {device.State}). Vérifiez son mode USB et ses autorisations.");
+        try
+        {
+            // Harmless, selected-device-only probe. An authorized transport is not always a working shell.
+            var response = await ShellAsync(serial, "printf 'androcp-access-ok'", ct);
+            return response.Trim() == "androcp-access-ok"
+                ? new(DeviceConnectionState.Ready, $"{device.Model} ({device.Serial}) — Connecté et autorisé, prêt à copier.")
+                : new(DeviceConnectionState.Failed, "Le téléphone est détecté, mais la vérification d’accès ADB n’a pas abouti.");
+        }
+        catch (IOException ex)
+        {
+            return new(DeviceConnectionState.Failed, "L’accès ADB au téléphone a échoué : " + ex.Message);
+        }
+    }
     public async Task<List<SourceFile>> InventoryAsync(string serial, string root, CopyRules rules, CancellationToken ct)
     {
         root = AndroidPath(root);

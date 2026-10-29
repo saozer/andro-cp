@@ -2,10 +2,12 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <AssemblyName>AndroCp</AssemblyName>
+    <ApplicationIcon>Assets/andro-cp.ico</ApplicationIcon>
     <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
   </PropertyGroup>
   <ItemGroup>
+    <AvaloniaResource Include="Assets/**" />
     <ProjectReference Include="../AndroCp.Core/AndroCp.Core.csproj" />
     <PackageReference Include="Avalonia" Version="11.3.8" />
     <PackageReference Include="Avalonia.Desktop" Version="11.3.8" />

@@ -4,6 +4,8 @@
 
 Auteur : **Michel Ekanga**, alias **King Saozer** — saozerkinghacker@gmail.com
 
+Le logo original est `logo-vector.svg`. Ses déclinaisons pour l’en-tête, l’icône de fenêtre et l’exécutable Windows sont dans `src/AndroCp.App/Assets/`. Pour les régénérer après modification du SVG : `python3 scripts/generate-icons.py` (Inkscape et Pillow requis). Les fichiers PNG/ICO générés doivent être versionnés ; aucune conversion d’image n’est nécessaire pendant les workflows de compilation.
+
 Copieur USB Android ↔ Windows, développé en C# / .NET 10 avec Avalonia. L’interface fonctionne aussi sous Linux pour le développement.
 
 ## Fonctionnalités communes
@@ -116,12 +118,19 @@ L’exécutable n’est pas signé. Windows SmartScreen peut afficher un avertis
 4. Adapter les filtres. Ils sont relatifs au dossier source : si la source est `/sdcard/DCIM`, un filtre `Android` n’a aucun effet.
 5. Cliquer sur **Préparer et copier**, puis résoudre les éventuels problèmes de noms.
 
+Le statut sous la liste décrit uniquement le téléphone sélectionné. Il est revérifié à la sélection, après **Actualiser**, avant et après une copie : nouvelle lecture de l’état ADB puis commande shell inoffensive sur l’appareil choisi. Le bouton de copie n’est activé qu’après confirmation de l’accès. Le bandeau de connexion disparaît lorsque l’appareil est connecté et autorisé ; il réapparaît si une vérification échoue. Les états `unauthorized`, `offline`, déconnecté et ADB indisponible ont chacun leur message. Les conseils généraux et restrictions de dossiers restent dans la section repliable **Informations Android et limites d’accès** : l’accès à ADB n’implique pas l’accès à toutes les données.
+
+Le bandeau possède une croix de fermeture. Un problème identique sur le même téléphone reste masqué pendant la session, même après une revérification. Un autre état ou un autre appareil peut afficher un nouvel avertissement. Le statut ADB et le blocage d’une copie non autorisée restent actifs, même quand le bandeau est fermé.
+
+Sous la barre de progression figurent le **temps écoulé** (actualisé chaque seconde) et le **temps restant estimé**. L’estimation utilise le débit des fichiers réellement transférés, sans compter les données simplement réutilisées par la reprise, et exclut du volume restant les fichiers ignorés. Pendant l’inventaire ou lorsque le débit ne peut pas encore être estimé de façon raisonnable, l’interface affiche « calcul en cours ». Le temps écoulé reste visible après une fin, une annulation ou une pause ; le temps restant d’une copie interrompue est laissé indéterminé.
+
 Les journaux sont dans `%LOCALAPPDATA%/AndroCp/journals` sous Windows et dans le dossier de données locales correspondant sous Linux. Ils contiennent les chemins, les renommages et les erreurs : attention à leur confidentialité.
 
 ## Limites de cette version
 
 - Pas encore de navigateur de dossiers Android, copie Android ↔ Android, ni conservation générale des métadonnées/horodatages. La reprise n’est activée dans l’interface que pour la variante ARFT.
 - La progression avance par fichier terminé, pas en continu à l’intérieur d’un gros fichier. La vitesse est une moyenne depuis le lancement, préparation comprise.
+- Le temps restant est approximatif et dépend de ces mises à jour par fichier. Pendant un très gros fichier, une estimation ancienne est retirée plutôt que présentée comme fiable ; le chronomètre continue de tourner.
 - Les transferts eux-mêmes sont encore séquentiels et utilisent des commandes ADB par fichier ; les transferts groupés restent à implémenter avant de viser des collections de plusieurs centaines de milliers de fichiers.
 - L’espace disponible est précontrôlé pour les disques Windows ; ailleurs une saturation provoque une erreur de transfert.
 - Copie classique : vérification des tailles uniquement. Variante reprise : SHA-256 pour reconnaître les fichiers déjà validés. Ne pas modifier les sources pendant la copie ; les fichiers modifiés en conservant volontairement taille et date ne sont pas détectés par l’inventaire seul.
