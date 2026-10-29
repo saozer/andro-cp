@@ -11,8 +11,20 @@ if (-not $WithoutAdb) {
     $Archive = Join-Path $Root 'artifacts/platform-tools-windows.zip'
     Invoke-WebRequest 'https://dl.google.com/android/repository/platform-tools-latest-windows.zip' -OutFile $Archive
     Expand-Archive -Path $Archive -DestinationPath $Output -Force
+    $PlatformTools = Join-Path $Output 'platform-tools'
+    foreach ($File in @('adb.exe', 'AdbWinApi.dll', 'AdbWinUsbApi.dll', 'NOTICE.txt')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $PlatformTools $File) -PathType Leaf)) {
+            throw "Distribution ADB incomplète : $File est absent."
+        }
+    }
+    & (Join-Path $PlatformTools 'adb.exe') version
+    if ($LASTEXITCODE -ne 0) { throw 'La vérification de ADB intégré a échoué.' }
     Get-FileHash $Archive -Algorithm SHA256 | Format-List | Out-File (Join-Path $Output 'platform-tools-sha256.txt')
 }
 Copy-Item (Join-Path $Root 'README.md') $Output
 Write-Host "Application portable disponible dans $Output"
-Write-Host 'Conserver le dossier platform-tools et ses notices avec AndroCp.exe.'
+if (-not $WithoutAdb) {
+    Write-Host 'ADB intégré et vérifié. Conserver le dossier platform-tools et ses notices avec AndroCp.exe.'
+} else {
+    Write-Host 'ADB non inclus : adb.exe doit être disponible dans le PATH du PC cible.'
+}

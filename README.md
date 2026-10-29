@@ -54,6 +54,8 @@ L’application utilise alors `adb.exe` dans le PATH Windows. Vérifier `adb ver
 
 Le workflow `.github/workflows/windows.yml` permet également de construire sous Windows via GitHub Actions, une fois le dépôt publié. Aucun dépôt distant n’est créé automatiquement.
 
+**Le workflow inclut ADB par défaut.** Il vérifie la présence de `adb.exe`, de ses deux DLL Windows et de `NOTICE.txt`, puis exécute `adb version` avant de livrer l’artefact. Télécharger et extraire tout l’artefact `AndroCp-win-x64`, pas seulement le fichier `.exe`. Le copieur privilégie cet ADB intégré par rapport à celui du PATH.
+
 Une compilation croisée sans ADB est possible depuis Linux :
 
 ```sh

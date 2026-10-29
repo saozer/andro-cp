@@ -12,10 +12,11 @@ jobs:
       - uses: actions/setup-dotnet@v6.0.0
         with:
           dotnet-version: '10.0.x'
-      - name: Test et publication
+      - name: Test et publication Windows avec ADB intégré
         shell: pwsh
         run: ./scripts/publish-windows.ps1
       - uses: actions/upload-artifact@v7.0.2
         with:
           name: AndroCp-win-x64
           path: artifacts/AndroCp-win-x64/
+          if-no-files-found: error
