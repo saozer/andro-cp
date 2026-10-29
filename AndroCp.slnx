@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/AndroCp.Core/AndroCp.Core.csproj" />
+    <Project Path="src/AndroCp.App/AndroCp.App.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/AndroCp.Tests/AndroCp.Tests.csproj" />
+  </Folder>
+</Solution>

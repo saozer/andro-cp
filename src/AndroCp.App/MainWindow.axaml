@@ -1,0 +1,72 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="AndroCp.App.MainWindow"
+        Title="Andro CP — Copieur Android" Width="1040" Height="880" MinWidth="780" MinHeight="680"
+        Background="#10151F">
+  <Grid RowDefinitions="Auto,*,Auto" Margin="28" RowSpacing="18">
+    <Grid ColumnDefinitions="*,Auto">
+      <StackPanel Spacing="4">
+        <TextBlock Text="ANDRO CP" FontSize="30" FontWeight="Bold" Foreground="#7DD3FC" />
+        <TextBlock Text="Vos fichiers, dans les deux sens. Sans toucher à la source." Foreground="#A8B3C7" />
+      </StackPanel>
+      <Border Grid.Column="1" Background="#203446" CornerRadius="16" Padding="14,8" VerticalAlignment="Center">
+        <TextBlock Text="USB · ADB" Foreground="#7DD3FC" />
+      </Border>
+    </Grid>
+    <ScrollViewer Grid.Row="1">
+      <StackPanel Spacing="18">
+        <Border Background="#30291D" BorderBrush="#68502B" BorderThickness="1" CornerRadius="8" Padding="14">
+          <TextBlock TextWrapping="Wrap" Foreground="#F6D99A"
+            Text="À savoir : activez le débogage USB et autorisez cet ordinateur sur le téléphone. Un pilote USB Windows peut être nécessaire. Les données privées et certains dossiers Android sont protégés. Gardez le téléphone connecté et évitez de modifier les fichiers pendant la copie." />
+        </Border>
+        <StackPanel x:Name="Configuration" Spacing="16">
+          <TextBlock Text="01  Connexion" Classes="section" />
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+            <ComboBox x:Name="Devices" HorizontalAlignment="Stretch" PlaceholderText="Choisir un téléphone Android" />
+            <Button Grid.Column="1" x:Name="RefreshButton" Content="Actualiser" Click="RefreshClick" />
+          </Grid>
+          <TextBlock x:Name="DeviceStatus" Text="Recherche des appareils…" Foreground="#A8B3C7" TextWrapping="Wrap" />
+          <TextBlock Text="02  Trajet de la copie" Classes="section" />
+          <ComboBox x:Name="Direction" SelectedIndex="0" HorizontalAlignment="Stretch" SelectionChanged="DirectionChanged">
+            <ComboBoxItem Content="Android → Cet ordinateur" />
+            <ComboBoxItem Content="Cet ordinateur → Android" />
+          </ComboBox>
+          <Grid ColumnDefinitions="140,*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="12">
+            <TextBlock Grid.Row="0" x:Name="SourceLabel" Text="Source Android" VerticalAlignment="Center" />
+            <TextBox Grid.Column="1" x:Name="SourcePath" Text="/sdcard" Watermark="Chemin du dossier source" />
+            <Button Grid.Column="2" x:Name="SourceBrowse" Content="Parcourir…" Click="BrowseSourceClick" IsVisible="False" />
+            <TextBlock Grid.Row="1" x:Name="DestinationLabel" Text="Destination locale" VerticalAlignment="Center" />
+            <TextBox Grid.Row="1" Grid.Column="1" x:Name="DestinationPath" Watermark="Choisir un dossier existant" />
+            <Button Grid.Row="1" Grid.Column="2" x:Name="DestinationBrowse" Content="Parcourir…" Click="BrowseDestinationClick" />
+          </Grid>
+          <TextBlock Text="Les chemins Android sont saisis manuellement : /sdcard, /sdcard/DCIM, /storage/…" FontSize="12" Foreground="#A8B3C7" />
+          <TextBlock Text="03  Filtres" Classes="section" />
+          <Grid ColumnDefinitions="*,*" ColumnSpacing="16">
+            <StackPanel Spacing="6">
+              <TextBlock Text="Dossiers à exclure" />
+              <TextBox x:Name="Exclusions" AcceptsReturn="True" Height="88" Text="Android" Watermark="Un chemin relatif par ligne" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Spacing="6">
+              <TextBlock Text="Exceptions à conserver" />
+              <TextBox x:Name="Exceptions" AcceptsReturn="True" Height="88" Text="Android/media/com.whatsapp" Watermark="Un chemin relatif par ligne" />
+            </StackPanel>
+          </Grid>
+          <TextBlock Text="Chemins relatifs à la source, sensibles à la casse, sans jokers. Les exceptions priment sur les exclusions. Les dossiers vides ne sont jamais copiés. Aucun écrasement automatique." TextWrapping="Wrap" Foreground="#A8B3C7" FontSize="12" />
+        </StackPanel>
+        <Border Background="#192231" CornerRadius="8" Padding="16">
+          <StackPanel Spacing="10">
+            <TextBlock x:Name="Status" Text="Prêt à préparer une copie" FontWeight="SemiBold" TextWrapping="Wrap" />
+            <ProgressBar x:Name="TransferProgress" Minimum="0" Maximum="100" Value="0" Height="8" />
+            <TextBlock x:Name="CurrentFile" Text="Les noms incompatibles seront soumis à votre décision." TextWrapping="Wrap" Foreground="#A8B3C7" FontSize="12" />
+            <TextBox x:Name="LogBox" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" Height="130" FontFamily="monospace" FontSize="11" />
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </ScrollViewer>
+    <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
+      <TextBlock Text="Copie uniquement · contrôle des tailles · journal JSONL" Foreground="#A8B3C7" FontSize="12" VerticalAlignment="Center" />
+      <Button Grid.Column="1" x:Name="CancelButton" Content="Annuler" IsEnabled="False" Click="CancelClick" />
+      <Button Grid.Column="2" x:Name="CopyButton" Content="Préparer et copier" Background="#0369A1" Foreground="White" Padding="22,12" Click="CopyClick" />
+    </Grid>
+  </Grid>
+</Window>
